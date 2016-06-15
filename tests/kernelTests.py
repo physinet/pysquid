@@ -19,4 +19,19 @@ def testConvolution(kernelType, psf_params = None, shape = (10, 10),
     rmserror = np.sqrt(np.mean((fftConv - trueConv)**2))
     return rmserror, kernel, M
 
-
+def testGradient(kernelType, psf_params = None, shape = (10, 10),
+                 padding = (2,2), gtest = None, stepsize = 1E-7, **kwargs):
+    kernel = kernelType(shape, psf_params, padding, cutoff = False, **kwargs)
+    gtest = gtest if gtest is not None else np.random.randn(*kernel._padshape)
+    kernel_grad = kernel.computeGradients(gtest)
+    psf_params = kernel.psf_params.copy()
+    check_grad = np.zeros_like(kernel_grad)
+    ev = kernel.applyM(gtest).real
+    for i in range(len(psf_params)):
+        psf_params[i] += stepsize
+        kernel.updateParams('psf_params', psf_params)
+        check_grad[:,:,i] = (kernel.applyM(gtest).real - ev)/stepsize
+        psf_params[i] -= stepsize
+    rmsdiff = np.sqrt(np.mean((kernel_grad-check_grad)**2))
+    print("RMS deviation of gradient is {}".format(rmsdiff))
+    return rmsdiff, kernel_grad, check_grad

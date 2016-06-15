@@ -15,7 +15,19 @@ import numpy as np
 from pysquid.kernels.kernel import Kernel
 
 
-class GaussianBlurKernel(Kernel):
+class PSFKernel(Kernel):
+
+    def _updateM(self): #No g-kernel
+        pass #Leave alone
+
+    def _updateMPSF(self): #Just PSF
+        self.MPSF_k = self.PSF_k 
+        self.MPSF = self.fftw.ifft(self.MPSF_k)
+
+    def _updatePSF(self):
+        pass #implement PSF
+
+class GaussianBlurKernel(PSFKernel):
     def __init__(self, shape, psf_params = None,
                  padding = None, **kwargs):
         """
@@ -46,10 +58,6 @@ class GaussianBlurKernel(Kernel):
          
         self._updatePSF()
         self._updateMPSF()
-
-    def _updateMPSF(self): #Just gaussian
-        self.MPSF_k = self.PSF_k 
-        self.MPSF = self.fftw.ifft(self.MPSF_k)
 
     def _updatePSF(self):
         sx, sy = self.psf_params

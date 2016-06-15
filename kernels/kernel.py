@@ -84,9 +84,9 @@ class Kernel(ModelComponent):
         """
         if name == 'psf_params':
             self.psf_params = copy(values)
-        self._updateM()
-        self._updatePSF()
-        self._updateMPSF()
+            self._updateM()
+            self._updatePSF()
+            self._updateMPSF()
 
     def _updateGrids(self):
         self.x = self.dx * np.arange( 0.5,  2*self.Lx_pad,  1.)
@@ -169,17 +169,22 @@ class Kernel(ModelComponent):
         """
         self._padExpandG[:self.Ly_pad, :self.Lx_pad] = arr[:,:]
         self._padExpandG_k = self.fftw.fft(self._padExpandG)
-        
-        _mult(self._dMPSF_dz_k, self.fftw.fft(self.dM_g_dz), self.PSF_k)
-        _mult(self._conv_k, self._dMPSF_dz_k, self._padExpandG_k)
-        
-        self.dMPSF_dz_dotg[:,:,0] = self.crop(self.fftw.ifft(self._conv_k).real)
-        
-        for p in range(len(self.psf_params)-1):
-            _mult(self._dMPSF_dz_k, self.d_PSF_k[:,:,p], self.M_g_k)
+       
+        offset = 0
+        if hasattr(self, 'dM_g_dz'): 
+            _mult(self._dMPSF_dz_k, self.fftw.fft(self.dM_g_dz), self.PSF_k)
             _mult(self._conv_k, self._dMPSF_dz_k, self._padExpandG_k)
+            self.dMPSF_dz_dotg[:,:,0] = self.crop(self.fftw.ifft(self._conv_k).real)
+            offset = 1
+        
+        for p in range(len(self.psf_params)-offset):
+            if hasattr(self, 'M_g_k'): 
+                _mult(self._dMPSF_dz_k, self.d_PSF_k[:,:,p], self.M_g_k)
+                _mult(self._conv_k, self._dMPSF_dz_k, self._padExpandG_k)
+            else: #Just convolve with PSF
+                _mult(self._conv_k, self.d_PSF_k[:,:,p], self._padExpandG_k)
 
-            self.dMPSF_dz_dotg[:,:,p+1] = self.crop(self.fftw.ifft(self._conv_k).real)        
+            self.dMPSF_dz_dotg[:,:,p+offset] = self.crop(self.fftw.ifft(self._conv_k).real)        
         return self.dMPSF_dz_dotg
 
     @property
@@ -197,6 +202,8 @@ class BareKernel(Kernel):
         A kernel with no point spread function for computing magnetic fields
         """
         super(BareKernel, self).__init__(shape, params, padding, **kwargs)
+
+    def _updateMPSF(self): #Just Biot-Savart kernel
         self.MPSF = self.M_g
         self.MPSF_k = self.fftw.fft(self.M_g)
 
