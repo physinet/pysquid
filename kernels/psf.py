@@ -76,5 +76,131 @@ class GaussianBlurKernel(PSFKernel):
         self.PSF_k = self.fftw.fft(self.PSF)
 
 
+from scipy.special import expit
 
+
+class PlatonicKernel(PSFKernel):
+    def __init__(self, shape, psf_params = None,
+                 padding = None, **kwargs):
+        """
+        This is an implementation of a platonic approximation
+        to the PSF of a key-shaped squid-loop. It is a solid,
+        smoothed circle and rectangle with reduced amplitude.
+        input:
+            shape: tuple (Ly, Lx) of data shape
+            psf_params: ndarray of log-parameters
+                        [radius, length, width, keyamp, amp]
+
+            NOTE: this model PSF transforms parameters to enforce
+            a number of conditions. radius and length are made positive
+            by using logarithmic parameters, i.e. the model
+            takes their exponential. width and keyamp are restricted
+            to be in the range (0,1) by taking the expit. width
+            is then understood as fraction of the diameter (2*radius).
+            amp is enforced to be positive. Use the methods
+            self.get_p to transform to the constraint-satisfying
+            parameters, and self.get_logp to transform to the
+            unconstrained parameters.
+
+            **kwargs:
+                d: transition rate for sigmoidal smoothing of 
+                    the platonic shapes
+                h: step-size for central difference derivatives
+                    of PSF with respect to parameters
+        """
+        default = np.log(np.array([5., 5., .7, 0.33, 1.]))
+        self.d = kwargs.get('d', 0.25)
+        self.h = kwargs.get('h', 1E-7)
+        self.psf_params = psf_params if psf_params is not None else default
+        super(PlatonicKernel, self).__init__(shape, self.psf_params, 
+                                             padding, **kwargs)
+        if not len(self.psf_params) == 5:
+            raise RuntimeError('len(params) must be 5')
+
+        d_psf_shape = (2*self.Ly_pad, 2*self.Lx_pad, len(self.psf_params))
+        self.d_PSF = np.zeros(d_psf_shape)
+        self.d_PSF_k = np.zeros(d_psf_shape, dtype='complex128')
+        self._updatePSF()
+        self._updateMPSF()
+
+    def _updatePSF(self):
+        p0 = self.psf_params.copy()
+        self.PSF = self._psf(p0) 
+        self.PSF_k = self.fftw.fft(self.PSF)
+
+        for ip in range(len(p0)):
+            p0[ip] += self.h/2.
+            plus_h = self._psf(p0)
+            p0[ip] -= self.h
+            minus_h = self._psf(p0)
+            self.d_PSF[:,:,ip] = (plus_h - minus_h)/self.h
+            p0[ip] += self.h/2.
+            self.d_PSF_k[:,:,ip] = self.fftw.fft(self.d_PSF[:,:,ip])
+
+    @staticmethod
+    def invexpit(p):
+        """
+        Inverse of expit = 1/(1+np.exp(-x))
+        """
+        return np.log(p/(1-p))
+
+    @staticmethod
+    def get_logp(params):
+        """
+        transform params back to unconstrained domains
+        """
+        logp = np.log(params)
+        p2, p3 = params[2:4]
+        logp[2] = np.log(p2/(1-p2)) #invexpit
+        logp[3] = np.log(p3/(1-p3)) #invexpit
+        return logp
+
+    @staticmethod
+    def get_p(params):
+        """
+        transform params into the constrained domains
+        """
+        p = np.exp(params)
+        p[2] = expit(params[2]) #width in (0,1)
+        p[3] = expit(params[3]) #keyamp in (0,1)
+        return p
+
+    @property
+    def p(self):
+        """
+        Get the constrained parameters
+        """
+        return self.get_p(self.psf_params)
+
+    def _circle(self, r):
+        """
+        Make image of smoothed circle with radius r
+        """
+        x0, y0 = self.d_xg[0,0], self.d_yg[0,0]
+        d_xg, d_yg = self.d_xg - x0, self.d_yg - y0 
+        radial = np.hypot(d_xg, d_yg)
+        return expit(-(radial - r)/self.d)
+    
+    def _rectangle(self, L, w, offset):
+        """
+        Make smoothed rectangle of height (length) L,
+        width w, offset from the origin by offset.
+        """
+        x0, y0 = self.d_xg[0,0], self.d_yg[0,0] - offset
+        d_xg, d_yg = self.d_xg - x0, self.d_yg - y0
+        sigx = expit(-(np.abs(d_xg) - w/2.)/self.d)
+        sigy = expit(-(np.abs(d_yg + L/2) - L/2)/self.d)
+        return sigx*sigy
+
+    def _psf(self, params):
+        """
+        Make the platonic keyhole-shaped psf with
+        unconstrained parameters params
+        """
+        radius, length, width, kamp, amp = self.get_p(params)
+        circ = self._circle(radius)
+        offset = radius*np.sqrt(1 - width**2)
+        rect = self._rectangle(length, width*radius, offset)
+        out = np.maximum(circ, kamp * rect)
+        return out*amp
 
