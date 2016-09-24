@@ -27,6 +27,7 @@ class PSFKernel(Kernel):
     def _updatePSF(self):
         pass #implement PSF
 
+
 class GaussianBlurKernel(PSFKernel):
     def __init__(self, shape, psf_params = None,
                  padding = None, **kwargs):
@@ -53,8 +54,7 @@ class GaussianBlurKernel(PSFKernel):
         self.psf_params = psf_params if psf_params is not None else np.array([1., 1.])
         super(GaussianBlurKernel, self).__init__(shape, self.psf_params, 
                                                  padding, **kwargs)
-        if not len(self.psf_params) == 2:
-            raise RuntimeError('len(params) must be 2')
+        assert len(self.psf_params) == 2, 'len(params) must be 2'
          
         self._updatePSF()
         self._updateMPSF()
@@ -76,7 +76,7 @@ class GaussianBlurKernel(PSFKernel):
         self.PSF_k = self.fftw.fft(self.PSF)
 
 
-from scipy.special import expit
+from scipy.special import expit, logit
 
 
 class PlatonicKernel(PSFKernel):
@@ -114,8 +114,7 @@ class PlatonicKernel(PSFKernel):
         self.psf_params = psf_params if psf_params is not None else default
         super(PlatonicKernel, self).__init__(shape, self.psf_params, 
                                              padding, **kwargs)
-        if not len(self.psf_params) == 5:
-            raise RuntimeError('len(params) must be 5')
+        assert len(self.psf_params) == 5, "len(params) must be 5"
 
         d_psf_shape = (2*self.Ly_pad, 2*self.Lx_pad, len(self.psf_params))
         self.d_PSF = np.zeros(d_psf_shape)
@@ -137,12 +136,7 @@ class PlatonicKernel(PSFKernel):
             p0[ip] += self.h/2.
             self.d_PSF_k[:,:,ip] = self.fftw.fft(self.d_PSF[:,:,ip])
 
-    @staticmethod
-    def invexpit(p):
-        """
-        Inverse of expit = 1/(1+np.exp(-x))
-        """
-        return np.log(p/(1-p))
+    #TODO: gradients of width and keyamp still get stuck at 0
 
     @staticmethod
     def get_logp(params):
@@ -151,8 +145,9 @@ class PlatonicKernel(PSFKernel):
         """
         logp = np.log(params)
         p2, p3 = params[2:4]
-        logp[2] = np.log(p2/(1-p2)) #invexpit
-        logp[3] = np.log(p3/(1-p3)) #invexpit
+        #logp[2] = np.log(p2/(1-p2)) #invexpit
+        #logp[3] = np.log(p3/(1-p3)) #invexpit
+        logp[2], logp[3] = logit(params[2:4])
         return logp
 
     @staticmethod
@@ -161,8 +156,9 @@ class PlatonicKernel(PSFKernel):
         transform params into the constrained domains
         """
         p = np.exp(params)
-        p[2] = expit(params[2]) #width in (0,1)
-        p[3] = expit(params[3]) #keyamp in (0,1)
+        p[2:4] = expit(params[2:4])
+        #p[2] = expit(params[2]) #width in (0,1)
+        #p[3] = expit(params[3]) #keyamp in (0,1)
         return p
 
     @property
@@ -200,7 +196,7 @@ class PlatonicKernel(PSFKernel):
         radius, length, width, kamp, amp = self.get_p(params)
         circ = self._circle(radius)
         offset = radius*np.sqrt(1 - width**2)
-        rect = self._rectangle(length, width*radius, offset)
+        rect = self._rectangle(length, width*2*radius, offset)
         out = np.maximum(circ, kamp * rect)
         return out*amp
 
