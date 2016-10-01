@@ -2,10 +2,16 @@ import numpy as np
 import scipy.sparse as sps
 import numexpr as nu
 from scipy.ndimage import mean 
-import png
 from itertools import imap
 from numba import jit, float64, complex128, int64, void
 import matplotlib.pyplot as plt
+try:
+    import png
+    haspng = True
+except ImportError as er:
+    print("missing module png; pip install pypng")
+    haspng = False
+
 
 def curl(g, dx = 1., dy = 1.):
     """
@@ -184,6 +190,10 @@ def loadpng(filename):
     width, height = data[0], data[1]
     imarr = np.vstack(imap(np.uint16, data[2]))
     return imarr.reshape(height, width, -1)
+
+if not haspng:
+    def loadpng(filename):
+        print("Module png not found; pip install pypng")
 
 def plotrgba(rgba):
     fig, axes = plt.subplots(1,3,figsize=(15,5))
