@@ -197,11 +197,14 @@ class Kernel(ModelComponent):
 
 
 class BareKernel(Kernel):
-    def __init__(self, shape, params = [1.], padding = None, **kwargs):
+    def __init__(self, shape, psf_params = [1.], padding = None, **kwargs):
         """
         A kernel with no point spread function for computing magnetic fields
         """
-        super(BareKernel, self).__init__(shape, params, padding, **kwargs)
+        self.psf_params = psf_params
+        super(BareKernel, self).__init__(shape, psf_params, padding, **kwargs)
+        self._updatePSF()
+        self._updateMPSF()
 
     def _updateMPSF(self): #Just Biot-Savart kernel
         self.MPSF = self.M_g
