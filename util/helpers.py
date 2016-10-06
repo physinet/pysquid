@@ -1,9 +1,14 @@
 import numpy as np
+try:
+    from numba import jit, float64, complex128, int64, void
+    hasnumba = True
+except ImportError as er:
+    print("Missing numba will effect performance")
+    hasnumba = False
 import scipy.sparse as sps
 import numexpr as nu
 from scipy.ndimage import mean 
 from itertools import imap
-from numba import jit, float64, complex128, int64, void
 import matplotlib.pyplot as plt
 try:
     import png
@@ -212,12 +217,16 @@ def matshow(mat, aspect=0.2, figsize=(10,10)):
 
 ################ Optimized helper functions ##################
 
-@jit(void(complex128[:,:], complex128[:,:], 
-          complex128[:,:]), nopython=True)
-def _mult(store, a, b):
-    Ly, Lx = store.shape
-    for y in xrange(Ly):
-        for x in xrange(Lx):
-            store[y,x] = a[y,x] * b[y,x]
+if hasnumba:
+    @jit(void(complex128[:,:], complex128[:,:], 
+              complex128[:,:]), nopython=True)
+    def _mult(store, a, b):
+        Ly, Lx = store.shape
+        for y in xrange(Ly):
+            for x in xrange(Lx):
+                store[y,x] = a[y,x] * b[y,x]
+else:
+    def _mult(store, a, b):
+        store[:,:] = a*b
 
 
