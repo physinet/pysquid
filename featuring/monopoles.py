@@ -8,11 +8,12 @@ date: 2016-09-21
 """
 
 import numpy as np
-from scipy.optimize import leastsq
+#from scipy.optimize import leastsq
 
+from pysquid.opt import leastsq
 from pysquid.kernels import psf
 from pysquid.component import ModelComponent
-from pysquid.featuring.monopoleField import monopoleField, grad_monopoleField
+from pysquid.featuring.fields import monopoleField, grad_monopoleField
 
 
 class FeatureMonopoles(ModelComponent):
@@ -107,11 +108,15 @@ class FeatureMonopoles(ModelComponent):
         self.updateGradFlux()
         return self.gradflux
 
-    def optimize(self, p0, names, data):
-        self.soln = leastsq(self.residual, p0,
-                            Dfun = self.grad_residual,
-                            args = (names, data),
-                            full_output = True)
+    def optimize(self, p0, names, data, **kwargs):
+        #self.soln = leastsq(self.residual, p0,
+        #                    Dfun = self.grad_residual,
+        #                    args = (names, data),
+        #                    full_output = True)
+        mylm = leastsq.LM(self.N, len(p0),
+                          self.residual, self.grad_residual,
+                          args = (names, data))
+        self.soln = mylm.leastsq(p0, **kwargs)
         return self.soln[0]
          
         
