@@ -8,9 +8,9 @@ date: 2016-09-21
 """
 
 import numpy as np
-#from scipy.optimize import leastsq
 
 from pysquid.opt import leastsq
+from pysquid.parametermap import ParameterMap
 from pysquid.kernels import psf
 from pysquid.component import ModelComponent
 from pysquid.featuring.fields import monopoleField, grad_monopoleField
@@ -76,8 +76,6 @@ class FeatureMonopoles(ModelComponent):
     def updateField(self):
         self.field.fill(0.)
         for cc in self.coords.reshape(-1,2):
-            #TODO: Think about correct range for xg, yg
-            #i.e. figure out padding
             self.field += monopoleField(self.z, cc[0], cc[1], 
                                         self.d_xg, self.d_yg)
 
@@ -109,10 +107,6 @@ class FeatureMonopoles(ModelComponent):
         return self.gradflux
 
     def optimize(self, p0, names, data, **kwargs):
-        #self.soln = leastsq(self.residual, p0,
-        #                    Dfun = self.grad_residual,
-        #                    args = (names, data),
-        #                    full_output = True)
         mylm = leastsq.LM(self.N, len(p0),
                           self.residual, self.grad_residual,
                           args = (names, data))
@@ -121,22 +115,4 @@ class FeatureMonopoles(ModelComponent):
          
         
          
-
-#def vortexPSFModel(params, xg = xg, yg = yg):
-#    xc, yc, zp = params[:3]
-#    psf_p = params[3:]
-#    testfield = monopoleField(xc, yc, zp, xg, yg)
-#    kernel.updateParams('psf_params', psf_p)
-#    return kernel.applyM(testfield).real.ravel()
-#
-#def grad_vortexPSFModel(params, data = tdata_norm, xg = xg, yg = yg):
-#    xc, yc, zp = params[:3]
-#    psf_p = params[3:]
-#    testfield = monopoleField(xc, yc, zp, xg, yg)
-#    grad_testfield = grad_monopoleField(xc, yc, zp, xg, yg)
-#    kernel.updateParams('psf_params', psf_p)
-#    grad_t = np.array([kernel.applyM(g).real.ravel() for g in grad_testfield]).T
-#    grad_psf = kernel.computeGradients(testfield).reshape(-1, len(psf_p))
-#    return np.concatenate([grad_t, grad_psf], axis=1)
-
 
