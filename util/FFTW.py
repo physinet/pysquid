@@ -1,14 +1,18 @@
 from __future__ import print_function
 import sys, os
 import numpy as np
-import cPickle as pickle
-relative_path = __file__
+try:
+    import cPickle as pickle
+except ImportError as er:
+    import pickle
 try:
     from pyfftw import *
     hasfftw = True
 except ImportError:
     print('PYFFTW not found, please "pip install pyfftw" for up to 20x speedup')
     hasfftw = False
+
+relative_path = __file__
 
 
 class WrapFFTW(object):

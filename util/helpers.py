@@ -1,15 +1,18 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import scipy.sparse as sps
+import numexpr as nu
+from scipy.ndimage import mean 
 try:
     from numba import jit, float64, complex128, int64, void
     hasnumba = True
 except ImportError as er:
     print("Missing numba will effect performance")
     hasnumba = False
-import scipy.sparse as sps
-import numexpr as nu
-from scipy.ndimage import mean 
-from itertools import imap
-import matplotlib.pyplot as plt
+try:
+    from itertools import imap
+except ImportError as er:
+    imap = map #python 3
 try:
     import png
     haspng = True
