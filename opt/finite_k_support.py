@@ -147,7 +147,7 @@ class LinearModel_finitek_ADMM(LinearModel):
         if iprint:
             print("Initial NLL = {}".format(self.computeNLL(flux, g0)))
 
-        for i in xrange(itnlim):
+        for i in range(itnlim):
             g1[:] = self._update_g(h0, lamb0, **kwargs)
             h1[:] = self._update_h(g1)
           

@@ -60,7 +60,7 @@ class LM(object):
         N, M = self.N, self.M
 
         p1 = copy(p0)
-        for itn in xrange(maxiter):
+        for itn in range(maxiter):
             res0 = self.res(p1, *self.args)
             nlnprob0 = 0.5*res0.dot(res0)
             if iprint:

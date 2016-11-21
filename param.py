@@ -12,7 +12,6 @@ accessing and optimizing subsets of parameters is easy.
 
 import numpy as np
 from collections import defaultdict
-from itertools import izip
 
 
 class ParameterMap(object):
@@ -44,7 +43,7 @@ class ParameterMap(object):
     def updateParams(self, names=None, values=None):
         names = names if names is not None else self.names
         values = values if values is not None else self.values
-        for name, val in izip(names, values):
+        for name, val in zip(names, values):
             self.valuedict[name] = val
             for depend in self.depend_dict[name]:
                 depend.updateParams(name, val)

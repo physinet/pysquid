@@ -324,7 +324,7 @@ class FluxModelGaussianPrior(FluxModel):
         sigstepsize = kwargs.get('sigstepsize', 0.001)
         minNLL = copy(self.NLL)
         minparams = self.getParams()
-        for itn in xrange(nlimit):
+        for itn in range(nlimit):
             if verbose:
                 print("Starting iteration {}\n".format(itn))
             NLL0 = copy(self.NLL)

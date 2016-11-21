@@ -17,7 +17,6 @@ try:
     import png
     haspng = True
 except ImportError as er:
-    print("missing module png; pip install pypng")
     haspng = False
 
 
@@ -52,7 +51,7 @@ def makeD_operators(shape, dx = 1., dy = 1.):
     hrow, hcol, hdata = [], [], []
     vrow, vcol, vdata = [], [], []
     for i in range(N):
-        x, y = i % Lx, i / Lx
+        x, y = i % Lx, i // Lx
         hrow += [i, i]
         vrow += [i, i]
         if x > 0 and x < Lx - 1:
@@ -94,7 +93,7 @@ def makeD2_operators(shape, dx = 1., dy = 1.):
     hrow, hcol, hdata = [], [], []
     vrow, vcol, vdata = [], [], []
     for i in range(N):
-        x, y = i % Lx, i / Lx
+        x, y = i % Lx, i // Lx
         hrow += [i, i, i]
         vrow += [i, i, i]
         if x > 0 and x < Lx - 1:
@@ -170,7 +169,7 @@ def noise_estimate(image, w = 2):
     """
     Ly, Lx = image.shape
     boxcar = np.zeros_like(image)
-    boxcar[Ly/2-w:Ly/2+w, Lx/2-w:Lx/2+w] = 1.
+    boxcar[Ly//2-w:Ly//2+w, Lx//2-w:Lx//2+w] = 1.
     boxcar = np.fft.fftshift(boxcar)/boxcar.sum()
     smoothed = np.fft.ifft2(np.fft.fft2(image)*
                             np.fft.fft2(boxcar)).real
@@ -178,10 +177,10 @@ def noise_estimate(image, w = 2):
 
 def autoCorrByDistance(image, n_bins):
     Ly, Lx = image.shape
-    x = np.arange(Lx) - Lx/2
-    y = np.arange(Ly) - Ly/2
+    x = np.arange(Lx) - Lx//2
+    y = np.arange(Ly) - Ly//2
     xg, yg = np.meshgrid(x, y)
-    r = np.roll(np.roll(np.hypot(xg, yg), Lx/2, 1), Ly/2, 0)
+    r = np.roll(np.roll(np.hypot(xg, yg), Lx//2, 1), Ly//2, 0)
     bins = np.linspace(0, r.max(), num = n_bins+1, endpoint=True)
     binlabels = np.digitize(r.ravel(), bins, right=True)
     image_k = np.fft.fftn(image)
@@ -225,8 +224,8 @@ if hasnumba:
               complex128[:,:]), nopython=True)
     def _mult(store, a, b):
         Ly, Lx = store.shape
-        for y in xrange(Ly):
-            for x in xrange(Lx):
+        for y in range(Ly):
+            for x in range(Lx):
                 store[y,x] = a[y,x] * b[y,x]
 else:
     def _mult(store, a, b):

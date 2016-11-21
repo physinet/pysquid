@@ -56,7 +56,7 @@ class Adam(object):
         """
         self._reset()
         obj0, _ = self.obj_grad_obj(p0, *args)
-        for i in xrange(itn):
+        for i in range(itn):
             p0, obj = self.update(p0, args)
             try:
                 if i % iprint == 0:

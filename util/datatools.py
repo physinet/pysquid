@@ -22,7 +22,7 @@ def smooth_streaks(image, dx, dy, curve_cutoff = 4.,
     coordinates = [(i/Lx, i%Lx) for i, e in enumerate(flatexpand) if e]
     smoothed = image.copy()
     norm = 2.*(dx**2+dy**2)
-    for itn in xrange(itnlim):
+    for itn in range(itnlim):
         oldsmoothed = smoothed.copy()
         for (i, j) in coordinates:
             up = smoothed[i-1, j] if i > 0 else 0.
