@@ -224,9 +224,9 @@ class LinearModelTV_ADMM(LinearModel):
             updated g : (N_pad)-shaped
         """
         self._oldg = self._oldg if self._oldg is not None else np.zeros(self.N_pad)
-        oldAg = self.A.dot(self._oldg)
+        self._oldAg = self.A.dot(self._oldg)
         self._c = (self._Mtphi - self.D.T.dot(lamb - self.rho * z) 
-                               - self.rho * D2g_ext) - oldAg 
+                               - self.rho * D2g_ext) - self._oldAg 
         maxiter = kwargs.get('maxiter', 200)
         tol = kwargs.get('tol', 1E-6)
         self._gminsol = spl.minres(self.A, self._c, maxiter = maxiter, tol = tol)
