@@ -47,7 +47,7 @@ class WrapFFTW(object):
        
        self._wisdom = export_wisdom()
        with open(self.wisdomfile, 'wb') as outfile:
-           pickle.dump(self._wisdom, outfile, -1) 
+           pickle.dump(self._wisdom, outfile, 0) 
 
    def fft(self, inp):
        self.data[:,:] = inp
