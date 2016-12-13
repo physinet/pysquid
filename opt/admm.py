@@ -169,9 +169,9 @@ class ADMM(object):
         r2 = r.dot(r)
         s2 = s.dot(s)
         if r2 > mu*s2:
-            return rho * t_inc
+            return rho * float(t_inc)
         elif s2 > mu*r2:
-            return rho / t_dec
+            return rho / float(t_dec)
         else:
             return rho
 
@@ -235,8 +235,8 @@ class ADMM(object):
         itnlim = kwargs.get("itnlim", 20)
         eps_abs = kwargs.get("eps_abs", 1E-2)
         eps_rel = kwargs.get("eps_rel", 1E-4)
-        t_inc = kwargs.get("t_inc", 2)
-        t_dec = kwargs.get("t_dec", 2)
+        t_inc = kwargs.get("t_inc", 2.)
+        t_dec = kwargs.get("t_dec", 2.)
         mu = kwargs.get("mu", 10)
         rho = kwargs.get("rho", 1E-2)
 
