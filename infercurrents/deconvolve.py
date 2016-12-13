@@ -32,13 +32,16 @@ class Deconvolver(ADMM):
     ADMM problem to be 1/2||Mx-phi||^2
     """
 
-    def __init__(self, kernel, m, p, **kwargs):
+    def __init__(self, kernel, **kwargs):
         """
         input:
             kernel: pysquid.Kernel object
 
         """
         self.kernel = kernel        
+        n = kernel.N_pad
+        m = 2 * n #x and y derivatives
+        p = m
         self._oldx = None #warm start for linear solver
 
         super(Deconvolver, self).__init__(kernel.N_pad, m, p)
@@ -68,7 +71,28 @@ class Deconvolver(ADMM):
         return MyLinearOperator((N_pad, N_pad), 
                                 matvec = apply_kernel)
 
-    #Implement lagrange multiplier initialization
+    def start_lagrange_mult(self, x0, z0, rho, phi = None, **kwargs):
+        """
+        Calculates the initial lagrange multiplier which ensures that
+        ADMM is stable if started at the correct x0, z0.
+
+        input:
+            x0 : float array of shape self.n, initial x point
+            z0 : float array of shape self.m, initial z point
+            rho : float, weighting of augmented part of lagrangian
+            phi : float array of shape self.
+        """
+        Op = self._get_x_op(rho)
+        A, B, c = self.A, self.B, self.c
+        self._y0rhs = -Op.dot(x0) + self.M.T.dot(phi) - rho*A.T.dot(B.dot(z0)-c)
+    
+        maxiter = kwargs.get('y0_maxiter', None)
+        atol = kwargs.get('atol', 1E-6)
+        btol = kwargs.get('atol', 1E-6)
+        
+        self._y0minsol = ssl.lsqr(self.A.T, self._y0rhs, iter_lim = maxiter, 
+                                  atol = atol, btol = btol, damp = 1E-5)
+        return self._y0minsol[0]
 
     def x_update(self, z, y, rho, x0 = None, phi = None, **kwargs):
         """
@@ -87,7 +111,6 @@ class Deconvolver(ADMM):
         """
         A, B, c = self.A, self.B, self.c
         self._oldx = self._oldx if self._oldx is not None else np.zeros(self.n)
-        #phi = kwargs.get('phi', None)
         maxiter = kwargs.get('maxiter', 200)
         tol = kwargs.get('tol', 1E-6)
         solver_str = kwargs.get('solver', 'minres')
@@ -117,18 +140,15 @@ class TVDeconvolver(Deconvolver):
     """
 
     def __init__(self, kernel, gamma, **kwargs):
-        n = kernel.N_pad
-        m = 2 * n #x and y derivatives
-        p = m
         self.gamma = gamma
-        super(TVDeconvolver, self).__init__(kernel, m, p, **kwargs)
+        super(TVDeconvolver, self).__init__(kernel, **kwargs)
 
         Ly_pad, Lx_pad = self.kernel._padshape
         dy, dx = self.kernel.dy, self.kernel.dx
         self.Dh, self.Dv = makeD2_operators((Ly_pad, Lx_pad), dx, dy)
 
         self.A = vstack([self.Dh, self.Dv])
-        self.B = MyLinearOperator((m, m), matvec = lambda x: -x)
+        self.B = MyLinearOperator((self.m, self.m), matvec = lambda x: -x)
         self.c = np.zeros(self.p)
 
     def g(self, z):
@@ -143,13 +163,12 @@ class TVDeconvolver(Deconvolver):
             x, y, z
         returns:
             lagrangian (float), d_lagrangian (m-shaped ndarray)
-            
         """
         r = self.primal_residual(x, z, y)
         gamma = self.gamma
         xx, yy = z[:self.n], z[self.n:]
         tv =  nu.evaluate('sqrt(xx*xx + yy*yy)')
-        lagrangian = gamma * tv.sum() + r.dot(y) + rho/2*r.dot(r)
+        lagrangian = gamma * tv.sum() + r.dot(y) + rho*r.dot(r)/2
         
         d_tv = np.concatenate((xx/tv, yy/tv))
         d_lagrangian = gamma * d_tv + self.B.T.dot(y + rho*r)
@@ -166,7 +185,7 @@ class TVDeconvolver(Deconvolver):
         output:
             updated z : (2*N_pad)-shaped
         """
-        zsteps = kwargs.get('zsteps', 40)
+        zsteps = kwargs.get('zsteps', 20)
         self._zminsol = minimize(self._lagrangian_dz, z0, args = (x, y, rho,),
                                  method = 'l-bfgs-b', jac = True, 
                                  options = {'maxiter': zsteps})
@@ -183,9 +202,9 @@ class TVDeconvolver(Deconvolver):
         g_kwargs = {}
         g_kwargs.setdefault('zsteps', kwargs.get('zsteps', 40))
 
-        z0 = self.c - self.A.dot(x0)
-        xmin = self.minimize(x0, f_args, g_args, f_kwargs, g_kwargs, 
-                             z0 = z0, **kwargs)
+        xmin, _, msg = self.minimize(x0, f_args, g_args, f_kwargs, g_kwargs, 
+                                     **kwargs)
+        return xmin
 
 
 def test_grad(function, z, h, args):
