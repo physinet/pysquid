@@ -16,6 +16,7 @@ and it must define the attributes A, B, and c, defined below.
 """
 
 import numpy as np
+import scipy.sparse.linalg as ssl
 
 
 class ADMM(object):
@@ -170,9 +171,31 @@ class ADMM(object):
         if r2 > mu*s2:
             return rho * t_inc
         elif s2 > mu*r2:
-            return rho /t_dec
+            return rho / t_dec
         else:
             return rho
+
+    def start_lagrange_mult(self, x0, z0, rho, *f_args, **f_kwargs):
+        """
+        Set the initial lagrange multiplier so that if the algorithm
+        starts at the true x it stays there.
+        NOTE: This accepts f_args and f_kwargs as it is assumed that the
+        x-update (minimizing over f) is performed first.
+        """
+        pass
+
+    def start_z(self, x0, **kwargs):
+        """
+        Set the initial z0 of ADMM to satisfy the constrain
+        Ax + Bz = c by solving Bz = c - Ax
+        """
+        self._z0rhs = self.c - self.A.dot(x0)
+        maxiter = kwargs.get("z0_maxiter", None)
+        atol = kwargs.get("z0_atol", 1E-6)
+        btol = kwargs.get("z0_btol", 1E-6)
+        self._z0minsol = ssl.lsqr(self.B, self._z0rhs, iter_lim = maxiter,
+                                  atol = atol, btol = btol, damp = 1E-5)
+        return self._z0minsol[0]
 
     def minimize(self, x0 = None, f_args = (), g_args = (),
                  f_kwargs = {}, g_kwargs = {}, **kwargs):
@@ -203,17 +226,11 @@ class ADMM(object):
         t_inc : Amount to increase rho by when primal residual is large
         t_dec : Amount to decrease rho by when dual residual is large
         mu : Algorithm tries to keep ||dual||^2 = mu * ||primal||^2
+
+        z0_solver : string from scipy.sparse.linalg for linear solver
+            to initialize z to satisfy constraints given x0.
         """
         self.callstart(x0, **kwargs)
-
-        x0 = x0 if x0 is not None else np.random.randn(self.n)
-        z0 = kwargs.get("z0", np.random.randn(self.m))
-        y0 = kwargs.get("y0", np.random.randn(self.p))
-        iprint = kwargs.get('iprint', 1)
-    
-        self.check_shape(x0, "x0", (self.n,))
-        self.check_shape(z0, "z0", (self.m,))
-        self.check_shape(y0, "y0", (self.p,))
 
         itnlim = kwargs.get("itnlim", 20)
         eps_abs = kwargs.get("eps_abs", 1E-2)
@@ -222,6 +239,15 @@ class ADMM(object):
         t_dec = kwargs.get("t_dec", 2)
         mu = kwargs.get("mu", 10)
         rho = kwargs.get("rho", 1E-2)
+
+        x0 = x0 if x0 is not None else np.random.randn(self.n)
+        z0 = self.start_z(x0, **kwargs)
+        y0 = self.start_lagrange_mult(x0, z0, rho, *f_args, **f_kwargs)
+        iprint = kwargs.get('iprint', 1)
+    
+        self.check_shape(x0, "x0", (self.n,))
+        self.check_shape(z0, "z0", (self.m,))
+        self.check_shape(y0, "y0", (self.p,))
 
         #Check types
         assert isinstance(itnlim, int), "itnlim must be an int"
@@ -245,18 +271,19 @@ class ADMM(object):
             s = self.dual_residual(z1, z0, rho)
 
             c1 = self.cost(x1, z1, f_args, g_args)
-            if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
-                msg = 1
-                break
-            else:
-                if iprint > 1:
-                    pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
-                            "rho = {}")
-                    print(pstr.format(itn, c1, r1.dot(r1), s.dot(s), rho))
+            
+            if iprint > 1:
+                pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
+                        "rho = {}")
+                print(pstr.format(itn, c1, r1.dot(r1), s.dot(s), rho))
 
             rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
             self.callback(x1, z1, y1)
+            
+            if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
+                msg = 1
+                break
         
         if itn == itnlim - 1:
             msg = 2
