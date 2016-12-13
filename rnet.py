@@ -121,8 +121,8 @@ class ResistorNetworkModel(ModelComponent):
             self.gfieldpadded = np.zeros((2*Ly, 2*Lx))
         
         #Mesh coordinates
-        self.meshIndex = np.cumsum(self.gmask.ravel())-1
-        self.N_meshes = np.max(self.meshIndex)+1
+        self.meshIndex = (np.cumsum(self.gmask.ravel())-1).astype('int')
+        self.N_meshes = max(self.meshIndex)+1
         self.N_loops = self.N_meshes + 1
         self.voltageConst = np.zeros(self.N_loops)
         self.voltageConst[-1] = self.deltaV
