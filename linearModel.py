@@ -292,7 +292,7 @@ class LinearModelTV_ADMM(LinearModel):
         g1 = g0.copy()
         z0 = self.D.dot(g0 + g_ext)
         lamb0 = self._initialize_lambda(g1, self._Mtphi)
-        alpha0, alpha1, ck0, ck1 = 1., 1., 1., 1.
+        alpha0, alpha1, ck0, ck1 = 1., 1., np.inf, 1.
         #Make copies for fast ADMM
         z1_hat, z1 = z0.copy(), z0.copy()
         lamb_hat, lamb1 = lamb0.copy(), lamb0.copy()
