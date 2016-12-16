@@ -394,7 +394,7 @@ class ADMM(object):
             c1 = self.combined_residual(y1, y_hat, z1, z_hat, rho)
 
             r1 = self.primal_residual(x1, z1, y1)
-            s = self.dual_residual(z1, z0, rho)
+            s = self.dual_residual(z1, z_hat, rho)
             rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
             if c1 < eta * c0:
@@ -406,7 +406,7 @@ class ADMM(object):
                 alpha1, z_hat, y_hat = 1., z0.copy(), y0.copy()
                 c1 = c0/eta
                 if iprint > 1:
-                    print("\033[1;31;49m\tRestarted acceleration\033[0m")
+                    print("\033[1;31;49m\t\tRestarted acceleration\033[0m")
 
             x0, z0 = x1.copy(), z1.copy()
             alpha0, c0 = alpha1, c1
