@@ -200,7 +200,7 @@ class TVDeconvolver(Deconvolver):
 
         g_args = ()
         g_kwargs = {}
-        g_kwargs.setdefault('zsteps', kwargs.get('zsteps', 40))
+        g_kwargs.setdefault('zsteps', kwargs.get('zsteps', 20))
 
         algorithm = kwargs.get("algorithm", "minimize")
         assert algorithm in ['minimize', 'minimize_fastrestart',
