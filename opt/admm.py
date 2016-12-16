@@ -10,6 +10,10 @@ based on Stephen Boyd's 2010 paper
 
     http://stanford.edu/~boyd/papers/pdf/admm_distr_stats.pdf
 
+Also implemented is an accelerated version of ADMM as described
+in Fast Alternating Direction Optimization Methods, Tom Goldstein et al.,
+SIAM J. Imaging Sciences, Vol.7, No. 3, pp 1588-1623 (2014)
+
 This class must be subclassed to be useful. A proper subclass
 must define the methods ADMM.f, ADMM.g, ADMM.x_update, ADMM.z_update,
 and it must define the attributes A, B, and c, defined below.
@@ -17,6 +21,9 @@ and it must define the attributes A, B, and c, defined below.
 
 import numpy as np
 import scipy.sparse.linalg as ssl
+
+def defaultcallback(x, z, y, **kwargs):
+    pass
 
 
 class ADMM(object):
@@ -103,11 +110,12 @@ class ADMM(object):
         """
         pass
 
-    def callback(self, *args, **kwargs):
-        """
-        Callback function for each iteration
-        """
-        pass
+    @staticmethod
+    def check_callback(callback):
+        cbackstr = "callback function must have at least 3 args (x, z, y)"
+        assert callback.func_code.co_argcount > 2, cbackstr
+        kstr = "callback should accept kwargs"
+        assert "kwargs" in callback.func_code.co_varnames, kstr
 
     def y_update(self, y, x, z, rho):
         """
@@ -231,8 +239,10 @@ class ADMM(object):
             to initialize z to satisfy constraints given x0.
         """
         self.callstart(x0, **kwargs)
+        callback = kwargs.get("callback", defaultcallback)
+        self.check_callback(callback)
 
-        itnlim = kwargs.get("itnlim", 20)
+        itnlim = kwargs.get("itnlim", 40)
         eps_abs = kwargs.get("eps_abs", 1E-2)
         eps_rel = kwargs.get("eps_rel", 1E-4)
         t_inc = kwargs.get("t_inc", 2.)
@@ -250,17 +260,17 @@ class ADMM(object):
         self.check_shape(y0, "y0", (self.p,))
 
         #Check types
-        assert isinstance(itnlim, int), "itnlim must be an int"
+        assert isinstance(itnlim, int) and itnlim>0, "itnlim must be positive int"
         assert t_inc > 0, "t_inc must > 0"
         assert t_dec > 0, "t_dec must be 0"
         assert mu > 0, "mu must be 0"
         assert rho > 0, "rho must be 0"
 
         r0 = self.primal_residual(x0, z0, y0)
-        c0 = self.cost(x0, z0, f_args, g_args)
+        cost = self.cost(x0, z0, f_args, g_args)
 
         if iprint:
-            print("Initial cost = {:e}".format(c0))
+            print("Initial cost = {:e}".format(cost))
 
         for itn in range(itnlim):
             x1 = self.x_update(z0, y0, rho, x0, *f_args, **f_kwargs)
@@ -269,17 +279,18 @@ class ADMM(object):
 
             r1 = self.primal_residual(x1, z1, y1)
             s = self.dual_residual(z1, z0, rho)
+            rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
-            c1 = self.cost(x1, z1, f_args, g_args)
+            #Track old values
+            x0, z0, y0 = x1.copy(), z1.copy(), y1.copy()
+
+            callback(x1, z1, y1, **kwargs)
             
+            cost = self.cost(x1, z1, f_args, g_args)
             if iprint > 1:
                 pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
                         "rho = {}")
-                print(pstr.format(itn, c1, r1.dot(r1), s.dot(s), rho))
-
-            rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
-
-            self.callback(x1, z1, y1)
+                print(pstr.format(itn, cost, r1.dot(r1), s.dot(s), rho))
             
             if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
                 msg = 1
@@ -290,7 +301,135 @@ class ADMM(object):
 
         if iprint:
             print(self.msg[msg])
+            print("Final cost = {:e}".format(cost))
 
         return x1, z1, msg
+
+    def combined_residual(self, y, y_hat, z, z_hat, rho):
+        prim = y - y_hat
+        dual = self.B.dot(z - z_hat)
+        return prim.dot(prim)/rho + rho*dual.dot(dual)
         
+    def minimize_fastrestart(self, x0 = None, f_args = (), g_args = (),
+                             f_kwargs = {}, g_kwargs = {}, **kwargs):
+        """
+        Implementation of the ADMM algorithm as described
+        in Boyd 2010. Includes the scheme for updating
+        rho as described in section 3.4.1. Includes Nesterov-type
+        acceleration and a restarting scheme as described in
+        Goldstein 2014.
+        input:
+            x0: ndarray of length n, initial x. Defaults 
+                to random array
+        returns:
+            optimal x0, message integer
+
+        kwargs:
+
+        z0 : ndarray of length m, initial z. Defaults to
+            random array
+        y0 : ndarray of length p, initial y. Defaults to 
+            random array
+        
+        Parameters effecting convergence of algorithm
+        rho : float, initial weighting of augmented term
+        eta : float [0,1) for setting how often restarts occur.
+            Closer to 1 leads to fewer restarts (generally preferred)
+
+        eps_abs : float, tolerance for absolute size of residuals
+        eps_rel : float, tol for relative size of residuals
+
+        See equation 3.13 in Boyd 2010 for definition of these.
+        t_inc : Amount to increase rho by when primal residual is large
+        t_dec : Amount to decrease rho by when dual residual is large
+        mu : Algorithm tries to keep ||dual||^2 = mu * ||primal||^2
+
+        z0_solver : string from scipy.sparse.linalg for linear solver
+            to initialize z to satisfy constraints given x0.
+        """
+        self.callstart(x0, **kwargs)
+        callback = kwargs.get("callback", defaultcallback)
+        self.check_callback(callback)
+
+        itnlim = kwargs.get("itnlim", 20)
+        eps_abs = kwargs.get("eps_abs", 1E-2)
+        eps_rel = kwargs.get("eps_rel", 1E-4)
+        t_inc = kwargs.get("t_inc", 2.)
+        t_dec = kwargs.get("t_dec", 2.)
+        mu = kwargs.get("mu", 10)
+        rho = kwargs.get("rho", 1E-2)
+        eta = kwargs.get("eta", 0.999)
+
+        x0 = x0 if x0 is not None else np.random.randn(self.n)
+        z0 = self.start_z(x0, **kwargs)
+        y0 = self.start_lagrange_mult(x0, z0, rho, *f_args, **f_kwargs)
+        iprint = kwargs.get('iprint', 1)
+    
+        self.check_shape(x0, "x0", (self.n,))
+        self.check_shape(z0, "z0", (self.m,))
+        self.check_shape(y0, "y0", (self.p,))
+
+        #Check types
+        assert isinstance(itnlim, int) and itnlim>0, "itnlim must be positive int"
+        assert t_inc > 0, "t_inc must > 0"
+        assert t_dec > 0, "t_dec must be 0"
+        assert mu > 0, "mu must be 0"
+        assert rho > 0, "rho must be 0"
+        assert 0 <= eta < 1, "eta must be in [0,1)"
+
+        r0 = self.primal_residual(x0, z0, y0)
+        cost = self.cost(x0, z0, f_args, g_args)
+
+        #Fast ADMM with restart
+        z_hat, y_hat = z0.copy(), y0.copy()
+        alpha0, c0 = 1., np.inf
+
+        if iprint:
+            print("Initial cost = {:e}".format(cost))
+
+        for itn in range(itnlim):
+            x1 = self.x_update(z_hat, y_hat, rho, x0, *f_args, **f_kwargs)
+            z1 = self.z_update(x1, y_hat, rho, z_hat, *g_args, **g_kwargs)
+            y1 = self.y_update(y_hat, x1, z1, rho)
+            c1 = self.combined_residual(y1, y_hat, z1, z_hat, rho)
+
+            r1 = self.primal_residual(x1, z1, y1)
+            s = self.dual_residual(z1, z0, rho)
+            rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
+
+            if c1 < eta * c0:
+                alpha1 = (1+np.sqrt(1+4*alpha0**2))/2
+                vel = (alpha0-1)/alpha1
+                z_hat = z1 + vel * (z1 - z0)
+                y_hat = y1 + vel * (y1 - y0)
+            else: #Restart acceleration
+                alpha1, z_hat, y_hat = 1., z0.copy(), y0.copy()
+                c1 = c0/eta
+                if iprint > 1:
+                    print("\033[1;31;49m\tRestarted acceleration\033[0m")
+
+            x0, z0 = x1.copy(), z1.copy()
+            alpha0, c0 = alpha1, c1
+
+            callback(x1, z1, y1, **kwargs)
+            
+            cost = self.cost(x1, z1, f_args, g_args)
+            if iprint > 1:
+                pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
+                        "rho = {}")
+                print(pstr.format(itn, cost, r1.dot(r1), s.dot(s), rho))
+
+            if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
+                msg = 1
+                break
+        
+        if itn == itnlim - 1:
+            msg = 2
+
+        if iprint:
+            print(self.msg[msg])
+            print("Final cost = {:e}".format(cost))
+
+        return x1, z1, msg
+ 
 
