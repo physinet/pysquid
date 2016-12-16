@@ -111,9 +111,9 @@ class Deconvolver(ADMM):
         """
         A, B, c = self.A, self.B, self.c
         self._oldx = self._oldx if self._oldx is not None else np.zeros(self.n)
-        maxiter = kwargs.get('maxiter', 200)
+        maxiter = kwargs.get('maxiter', 250)
         tol = kwargs.get('tol', 1E-6)
-        solver_str = kwargs.get('solver', 'minres')
+        solver_str = kwargs.get('solver', 'cg')
 
         assert phi is not None, "Must provide phi to deconvolve!"
         assert solver_str in linear_solvers, solver_msg
@@ -202,8 +202,12 @@ class TVDeconvolver(Deconvolver):
         g_kwargs = {}
         g_kwargs.setdefault('zsteps', kwargs.get('zsteps', 40))
 
-        xmin, _, msg = self.minimize(x0, f_args, g_args, f_kwargs, g_kwargs, 
-                                     **kwargs)
+        algorithm = kwargs.get("algorithm", "minimize")
+        assert algorithm in ['minimize', 'minimize_fastrestart',
+                             'minimize_fast']
+        minimizer = getattr(self, algorithm)
+        xmin, _, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs, 
+                                 **kwargs)
         return xmin
 
 
