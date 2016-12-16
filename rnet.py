@@ -11,6 +11,11 @@ in order to approximate current entering and leaving an image.
 """
 
 from __future__ import print_function
+
+from pysquid.kernels.kernel import BareKernel
+from pysquid.kernels.psf import GaussianBlurKernel
+from pysquid.component import ModelComponent
+
 import sys
 import numpy as np
 import scipy as sp
@@ -18,9 +23,6 @@ import networkx as nx
 from scipy.interpolate import griddata, NearestNDInterpolator
 from scipy.sparse.linalg import spsolve
 from collections import defaultdict
-from pysquid.kernels.kernel import BareKernel
-from pysquid.kernels.psf import GaussianBlurKernel
-from pysquid.component import ModelComponent
 
 
 class ResistorNetworkModel(ModelComponent):

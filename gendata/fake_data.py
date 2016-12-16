@@ -1,12 +1,16 @@
-import numpy as np
-import scipy as sp
-import os
-from scipy.io import savemat, loadmat
+
+print("import plain stuff")
 
 from pysquid.rnet import ResistorNetworkModel
+print("imported rnet")
 from pysquid.model import FluxModelTVPrior
-from pysquid.kernel.magpsf import GaussianKernel
+from pysquid.kernels.magpsf import GaussianKernel
 from pysquid.util.helpers import *
+
+from scipy.io import savemat, loadmat
+import os
+import numpy as np
+import scipy as sp
 
 loc = os.path.dirname(os.path.realpath(__file__))
 mask = np.load(os.path.join(loc, 'fake_data_hallprobe_interpolated.npy'))
@@ -21,6 +25,7 @@ true_params['psf_params'] =  np.array([3.,  6.,  10.])
 
 fake_data_offset = [840-100, 185]#fake_offset
 
+print("rnet")
 netmodel = ResistorNetworkModel(mask, phi_offset = fake_data_offset, 
                                 gshape=(Ly, Lx), electrodes=[50,550])
 
