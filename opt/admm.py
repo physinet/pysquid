@@ -134,7 +134,7 @@ class ADMM(object):
         errstr = "{} should have shape {}".format(name, shape)
         assert arr.shape == shape, errstr
 
-    def primal_residual(self, x, z, y):
+    def primal_residual(self, x, z):
         """
         Compute the primal residual, the violation
         of the condition Ax+Bz=c
@@ -277,7 +277,7 @@ class ADMM(object):
             z1 = self.z_update(x1, y0, rho, z0, *g_args, **g_kwargs)
             y1 = self.y_update(y0, x1, z1, rho)
 
-            r1 = self.primal_residual(x1, z1, y1)
+            r1 = self.primal_residual(x1, z1)
             s = self.dual_residual(z1, z0, rho)
             rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
@@ -377,7 +377,7 @@ class ADMM(object):
         assert rho > 0, "rho must be 0"
         assert 0 <= eta < 1, "eta must be in [0,1)"
 
-        r0 = self.primal_residual(x0, z0, y0)
+        r0 = self.primal_residual(x0, z0)
         cost = self.cost(x0, z0, f_args, g_args)
 
         #Fast ADMM with restart
@@ -393,7 +393,7 @@ class ADMM(object):
             y1 = self.y_update(y_hat, x1, z1, rho)
             c1 = self.combined_residual(y1, y_hat, z1, z_hat, rho)
 
-            r1 = self.primal_residual(x1, z1, y1)
+            r1 = self.primal_residual(x1, z1)
             s = self.dual_residual(z1, z_hat, rho)
             rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
