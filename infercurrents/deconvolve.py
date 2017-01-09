@@ -29,7 +29,12 @@ class Deconvolver(ADMM):
     """
     Performs deconvolution of flux image with arbitrary
     log-prior. In particular, this sets f(x) in standard
-    ADMM problem to be 1/2||Mx-phi||^2
+    ADMM problem to be 1/2||Mx-phi||^2 + nu/2||x-x^hat||^2
+
+    The first term is the 'fidelity' term for reproducing data
+    the second term is for finding the proximal operator
+    associated with our deconvolution problem which is useful for
+    solving constrained optimzation problems.
     """
 
     def __init__(self, kernel, **kwargs):
@@ -42,9 +47,14 @@ class Deconvolver(ADMM):
         n = kernel.N_pad
         m = 2 * n #x and y derivatives
         p = m
+        super(Deconvolver, self).__init__(kernel.N_pad, m, p)
+
         self._oldx = None #warm start for linear solver
 
-        super(Deconvolver, self).__init__(kernel.N_pad, m, p)
+        #proximal operator
+        self.nu = kwargs.get('nu', 0.)
+        self.xhat = kwargs.get('xhat', np.zeros(n))
+        assert len(self.xhat) == n, "xhat must be length {}".format(n)
         
         #Setup M matrix for Mg = phi
         m = lambda g: self.kernel.applyM(g).real.ravel()
@@ -54,11 +64,12 @@ class Deconvolver(ADMM):
 
     def f(self, x, phi, **kwargs):
         res = self.M.dot(x) - phi
-        return res.dot(res)/2
+        prox = x - self.xhat
+        return res.dot(res)/2 + self.nu*prox.dot(prox)/2
 
     def _apply_x_update_kernel(self, x, rho):
         M, A = self.M, self.A
-        return M.T.dot(M.dot(x)) + rho * A.T.dot(A.dot(x))
+        return M.T.dot(M.dot(x)) + rho * A.T.dot(A.dot(x)) + self.nu*x
 
     def _get_x_op(self, rho):
         """
@@ -84,7 +95,8 @@ class Deconvolver(ADMM):
         """
         Op = self._get_x_op(rho)
         A, B, c = self.A, self.B, self.c
-        self._y0rhs = -Op.dot(x0) + self.M.T.dot(phi) - rho*A.T.dot(B.dot(z0)-c)
+        self._y0rhs = (-Op.dot(x0) + self.M.T.dot(phi) + self.nu * self.xhat 
+                       - rho*A.T.dot(B.dot(z0)-c))
     
         maxiter = kwargs.get('y0_maxiter', None)
         atol = kwargs.get('atol', 1E-6)
@@ -98,7 +110,7 @@ class Deconvolver(ADMM):
         """
         Perform x_{k+1} = argmin_x L(x, y, z, rho)
 
-        by solving (M^TM + rho A^T A)x = M^Tphi - A^T(y + rho (Bz-c))
+        by solving (M^TM + rho A^T A + nu)x = M^Tphi + nu*x^hat - A^T(y + rho (Bz-c))
 
         kwargs:
             phi: ndarray of shape self.kernel.N, data to deconvolve
@@ -121,7 +133,7 @@ class Deconvolver(ADMM):
         
         Op = self._get_x_op(rho)
         self._oldOpx = Op.dot(self._oldx)
-        self._rhs = self.M.T.dot(phi) - A.T.dot(y + rho * (B.dot(z) - c))
+        self._rhs = self.M.T.dot(phi) + self.nu*self.xhat - A.T.dot(y+rho*(B.dot(z)-c))
         self._rhs -= self._oldOpx #warm start
 
         self._xminsol = solver(Op, self._rhs, maxiter = maxiter, tol = tol)
@@ -136,10 +148,11 @@ class Deconvolver(ADMM):
 class TVDeconvolver(Deconvolver):
     """
     Performs deconvolution of flux image with a
-    total variation prior on currents
+    total variation prior on currents by minimizing the function 
+        1/2||Mx-phi||^2 + gamma*TV(x)
     """
 
-    def __init__(self, kernel, gamma, **kwargs):
+    def __init__(self, kernel, gamma, g_ext = None, **kwargs):
         self.gamma = gamma
         super(TVDeconvolver, self).__init__(kernel, **kwargs)
 
@@ -149,7 +162,10 @@ class TVDeconvolver(Deconvolver):
 
         self.A = vstack([self.Dh, self.Dv])
         self.B = MyLinearOperator((self.m, self.m), matvec = lambda x: -x)
-        self.c = np.zeros(self.p)
+        if g_ext is None:
+            self.c = np.zeros(self.p)
+        else: #No penalty for TV of edge made by exterior loop subtraction
+            self.c = -self.A.dot(g_ext.ravel())
 
     def g(self, z):
         dx, dy = z[:self.n], z[self.n:]
@@ -164,7 +180,7 @@ class TVDeconvolver(Deconvolver):
         returns:
             lagrangian (float), d_lagrangian (m-shaped ndarray)
         """
-        r = self.primal_residual(x, z, y)
+        r = self.primal_residual(x, z)
         gamma = self.gamma
         xx, yy = z[:self.n], z[self.n:]
         tv =  nu.evaluate('sqrt(xx*xx + yy*yy)')
@@ -203,8 +219,7 @@ class TVDeconvolver(Deconvolver):
         g_kwargs.setdefault('zsteps', kwargs.get('zsteps', 20))
 
         algorithm = kwargs.get("algorithm", "minimize")
-        assert algorithm in ['minimize', 'minimize_fastrestart',
-                             'minimize_fast']
+        assert algorithm in ['minimize', 'minimize_fastrestart']
         minimizer = getattr(self, algorithm)
         xmin, _, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs, 
                                  **kwargs)

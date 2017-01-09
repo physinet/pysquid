@@ -266,7 +266,7 @@ class ADMM(object):
         assert mu > 0, "mu must be 0"
         assert rho > 0, "rho must be 0"
 
-        r0 = self.primal_residual(x0, z0, y0)
+        r0 = self.primal_residual(x0, z0)
         cost = self.cost(x0, z0, f_args, g_args)
 
         if iprint:
@@ -408,7 +408,7 @@ class ADMM(object):
                 if iprint > 1:
                     print("\033[1;31;49m\t\tRestarted acceleration\033[0m")
 
-            x0, z0 = x1.copy(), z1.copy()
+            x0, z0, y0 = x1.copy(), z1.copy(), y1.copy()
             alpha0, c0 = alpha1, c1
 
             callback(x1, z1, y1, **kwargs)
