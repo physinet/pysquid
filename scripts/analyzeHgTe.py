@@ -12,17 +12,17 @@ import pysquid.util.helpers as hpr
 loc = os.path.dirname(os.path.realpath(__file__))
 
 datarec = np.load(os.path.join(loc, 
-                               '../../../data/flux_and_reconstructions.npz'))['data']
+                               '../gendata/flux_and_reconstructions.npz'))['data']
 Ly, Lx = datarec[0][1]['scan'].shape
 
-mask = np.load(os.path.join(loc,'../data/hallprobe_interpolated.npy'))
+mask = np.load(os.path.join(loc,'../gendata/hallprobe_interpolated.npy'))
 imgspacing = [.16, .73] #y,x pixel spacing in micrometers
 dy, dx = imgspacing
 
 interpmask = 2*mask-1
 xcorner, ycorner = 224, 840
 
-fitpsf = np.load(os.path.join(loc, '../data/psf_params_2_gaussians.npz'))['psf_params']
+fitpsf = np.load(os.path.join(loc, '../gendata/psf_params_2_gaussians.npz'))['psf_params']
 
 scaledpsf = hpr.changeUnits(fitpsf.ravel(), dx = 3.2, dy = 2.6).ravel()
 

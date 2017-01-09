@@ -36,8 +36,9 @@ if __name__ == '__main__':
     dy, dx = [0.16, 0.73] #Pixel spacing in micrometers
 
     #Largest voltage (0.1) is thresholded so we throw away the last element!
-    datarec = loaddata(os.path.join(loc,
-                                    '../../../data/data_incl_fourier_reconstruction'))[:-1]
+    #datarec = loaddata(os.path.join(loc,
+    #                                '../../../data/data_incl_fourier_reconstruction'))[:-1]
+    datarec = loaddata("/home/colin/Dropbox/Katja_current_reconstruction_share/ImageData/data/data_incl_fourier_reconstruction")
 
     #Smooth streaks in data
     for dd in datarec:
@@ -49,6 +50,6 @@ if __name__ == '__main__':
     scale = 3*maxstd
     for d in datarec: 
         d[1]['scan'] /= -1*scale
-    np.savez(os.path.join(loc, "../../../data/flux_and_reconstructions.npz"), 
+    np.savez(os.path.join(loc, "../gendata/flux_and_reconstructions.npz"), 
              data = datarec, scale = scale)
 
