@@ -147,7 +147,7 @@ class ResistorNetworkModel(ModelComponent):
         
         for i in np.arange(self.N)[self.gmask > 0]:
             mesh = self.meshIndex[i] #meshes don't cound empty spots
-            mesh_coord = np.array([i % Lx, i//Lx])
+            mesh_coord = np.array([i % Lx, i//Lx]) #x, y coordinates
             mesh_edges = [i+i//Lx+N_hor, i+Lx, i+i//Lx+N_hor+1, i] #CCW order
             self.meshEdges[mesh] = mesh_edges
             row += [mesh]
