@@ -174,8 +174,7 @@ class ADMM(object):
         the dual and primal residuals within a factor of
         mu of each other
         """
-        r2 = r.dot(r)
-        s2 = s.dot(s)
+        r2, s2 = r.dot(r), s.dot(s)
         if r2 > mu*s2:
             return rho * float(t_inc)
         elif s2 > mu*r2:
@@ -248,7 +247,7 @@ class ADMM(object):
         t_inc = kwargs.get("t_inc", 2.)
         t_dec = kwargs.get("t_dec", 2.)
         mu = kwargs.get("mu", 10)
-        rho = kwargs.get("rho", 1E-2)
+        rho = kwargs.get("rho", 1E-1)
 
         x0 = x0 if x0 is not None else np.random.randn(self.n)
         z0 = self.start_z(x0, **kwargs)
@@ -357,7 +356,7 @@ class ADMM(object):
         t_inc = kwargs.get("t_inc", 2.)
         t_dec = kwargs.get("t_dec", 2.)
         mu = kwargs.get("mu", 10)
-        rho = kwargs.get("rho", 1E-2)
+        rho = kwargs.get("rho", 1E-1)
         eta = kwargs.get("eta", 0.999)
 
         x0 = x0 if x0 is not None else np.random.randn(self.n)
@@ -382,7 +381,7 @@ class ADMM(object):
 
         #Fast ADMM with restart
         z_hat, y_hat = z0.copy(), y0.copy()
-        alpha0, c0 = 1., np.inf
+        alpha0, c0 = 1., np.inf #always accept first accelerated step
 
         if iprint:
             print("Initial cost = {:e}".format(cost))
