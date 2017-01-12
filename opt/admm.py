@@ -73,7 +73,24 @@ class ADMM(object):
 
         self.msg = {1: "Convergence criterion satisfied",
                     2: "Iteration limit reached"}
+        self.printcolors = {"red": "\033[1;31;49m", "green": "\033[1;32;49m",
+                            "blue": "\033[1;34;49m", "purple": "\033[1;35;49m",
+                            "gray": "\033[1;30;49m", "black": ""}
+        self.defaultprintcolor = "black"
+        self.appendprint = ""
 
+    def cprint(self, string, color = None):
+        """
+        Print in red text
+        """
+        color = color if color is not None else self.defaultprintcolor
+        printstr = self.appendprint + self.printcolors[color]+string+"\033[0m"
+        print(printstr)
+
+    #-----------------------------------------------------------------
+    # These functions must be subclassed for ADMM to function
+    #-----------------------------------------------------------------
+    
     def f(self, x, *args, **kwargs):
         """
         One of the functions to be minimized.
@@ -103,6 +120,19 @@ class ADMM(object):
             z_{k+1} := argmin_z L(x_{k+1}, z, y_{k}, p)
         """
         pass
+
+    def start_lagrange_mult(self, x0, z0, rho, *f_args, **f_kwargs):
+        """
+        Set the initial lagrange multiplier so that if the algorithm
+        starts at the true x it stays there.
+        NOTE: This accepts f_args and f_kwargs as it is assumed that the
+        x-update (minimizing over f) is performed first.
+        """
+        pass
+    
+    #-----------------------------------------------------------------
+    # End functions necesarry for ADMM to function 
+    #-----------------------------------------------------------------
 
     def callstart(self, x0 = None, *args, **kwargs):
         """
@@ -182,15 +212,6 @@ class ADMM(object):
         else:
             return rho
 
-    def start_lagrange_mult(self, x0, z0, rho, *f_args, **f_kwargs):
-        """
-        Set the initial lagrange multiplier so that if the algorithm
-        starts at the true x it stays there.
-        NOTE: This accepts f_args and f_kwargs as it is assumed that the
-        x-update (minimizing over f) is performed first.
-        """
-        pass
-
     def start_z(self, x0, **kwargs):
         """
         Set the initial z0 of ADMM to satisfy the constrain
@@ -242,12 +263,12 @@ class ADMM(object):
         self.check_callback(callback)
 
         itnlim = kwargs.get("itnlim", 40)
-        eps_abs = kwargs.get("eps_abs", 1E-2)
-        eps_rel = kwargs.get("eps_rel", 1E-4)
+        eps_abs = kwargs.get("eps_abs", 1E-4)
+        eps_rel = kwargs.get("eps_rel", 1E-6)
         t_inc = kwargs.get("t_inc", 2.)
         t_dec = kwargs.get("t_dec", 2.)
         mu = kwargs.get("mu", 10)
-        rho = kwargs.get("rho", 1E-1)
+        rho = kwargs.get("rho", 1E-2)
 
         x0 = x0 if x0 is not None else np.random.randn(self.n)
         z0 = self.start_z(x0, **kwargs)
@@ -269,7 +290,7 @@ class ADMM(object):
         cost = self.cost(x0, z0, f_args, g_args)
 
         if iprint:
-            print("Initial cost = {:e}".format(cost))
+            self.cprint("Initial cost = {:.3e}".format(cost))
 
         for itn in range(itnlim):
             x1 = self.x_update(z0, y0, rho, x0, *f_args, **f_kwargs)
@@ -287,9 +308,10 @@ class ADMM(object):
             
             cost = self.cost(x1, z1, f_args, g_args)
             if iprint > 1:
-                pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
-                        "rho = {}")
-                print(pstr.format(itn, cost, r1.dot(r1), s.dot(s), rho))
+                pstr = "Itn {:1}: cost = {:.3e}, rho = {}"
+                self.cprint(pstr.format(itn, cost, rho))
+                pstr = "\tr = {:.3e}, s = {:.3e} "
+                self.cprint(pstr.format(r1.dot(r1), s.dot(s)))
             
             if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
                 msg = 1
@@ -299,8 +321,8 @@ class ADMM(object):
             msg = 2
 
         if iprint:
-            print(self.msg[msg])
-            print("Final cost = {:e}".format(cost))
+            self.cprint(self.msg[msg])
+            self.cprint("Final cost = {:.3e}".format(cost))
 
         return x1, z1, msg
 
@@ -351,8 +373,8 @@ class ADMM(object):
         self.check_callback(callback)
 
         itnlim = kwargs.get("itnlim", 20)
-        eps_abs = kwargs.get("eps_abs", 1E-2)
-        eps_rel = kwargs.get("eps_rel", 1E-4)
+        eps_abs = kwargs.get("eps_abs", 1E-4)
+        eps_rel = kwargs.get("eps_rel", 1E-6)
         t_inc = kwargs.get("t_inc", 2.)
         t_dec = kwargs.get("t_dec", 2.)
         mu = kwargs.get("mu", 10)
@@ -384,7 +406,7 @@ class ADMM(object):
         alpha0, c0 = 1., np.inf #always accept first accelerated step
 
         if iprint:
-            print("Initial cost = {:e}".format(cost))
+            self.cprint("Initial cost = {:.3e}".format(cost))
 
         for itn in range(itnlim):
             x1 = self.x_update(z_hat, y_hat, rho, x0, *f_args, **f_kwargs)
@@ -405,7 +427,7 @@ class ADMM(object):
                 alpha1, z_hat, y_hat = 1., z0.copy(), y0.copy()
                 c1 = c0/eta
                 if iprint > 1:
-                    print("\033[1;31;49m\t\tRestarted acceleration\033[0m")
+                    self.cprint("\t\tRestarted acceleration", color = "red")
 
             x0, z0, y0 = x1.copy(), z1.copy(), y1.copy()
             alpha0, c0 = alpha1, c1
@@ -414,9 +436,10 @@ class ADMM(object):
             
             cost = self.cost(x1, z1, f_args, g_args)
             if iprint > 1:
-                pstr = ("\tItn {:1}: cost = {:e}, r = {:.3e}, s = {:.3e} " + 
-                        "rho = {}")
-                print(pstr.format(itn, cost, r1.dot(r1), s.dot(s), rho))
+                pstr = "Itn {:1}: cost = {:.3e}, rho = {}"
+                self.cprint(pstr.format(itn, cost, rho))
+                pstr = "\tr = {:.3e}, s = {:.3e} "
+                self.cprint(pstr.format(r1.dot(r1), s.dot(s)))
 
             if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
                 msg = 1
@@ -426,8 +449,8 @@ class ADMM(object):
             msg = 2
 
         if iprint:
-            print(self.msg[msg])
-            print("Final cost = {:e}".format(cost))
+            self.cprint(self.msg[msg])
+            self.cprint("Final cost = {:.3e}".format(cost))
 
         return x1, z1, msg
  
