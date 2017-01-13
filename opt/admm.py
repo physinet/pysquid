@@ -22,6 +22,7 @@ and it must define the attributes A, B, and c, defined below.
 import numpy as np
 import scipy.sparse.linalg as ssl
 
+
 def defaultcallback(x, z, y, **kwargs):
     pass
 
@@ -38,7 +39,7 @@ class ADMM(object):
     g are convex.
 
     The algorithm is as follows:
-        define the augmented lagrangian 
+        define the augmented lagrangian
         L(x, z, y, p) := f(x) + g(z) + y.dot(Ax+Bz-c)
                          + rho/2 ||Ax+bz-c||^2
         repeat until convergence criterion met:
@@ -49,7 +50,7 @@ class ADMM(object):
     The notation and most of the algorithm are implementations
     of the paper "Distributed Optimization and Statistical
     Learning via the Alternating Direction Method of Multipliers"
-    by Stephen Boyd et al. Foundations and Trends in Machine 
+    by Stephen Boyd et al. Foundations and Trends in Machine
     Learning Vol. 3, No. 1 (2010)
     http://stanford.edu/~boyd/papers/pdf/admm_distr_stats.pdf
     """
@@ -79,7 +80,7 @@ class ADMM(object):
         self.defaultprintcolor = "black"
         self.appendprint = ""
 
-    def cprint(self, string, color = None):
+    def cprint(self, string, color=None):
         """
         Print in red text
         """
@@ -87,10 +88,10 @@ class ADMM(object):
         printstr = self.appendprint + self.printcolors[color]+string+"\033[0m"
         print(printstr)
 
-    #-----------------------------------------------------------------
+    # -----------------------------------------------------------------
     # These functions must be subclassed for ADMM to function
-    #-----------------------------------------------------------------
-    
+    # -----------------------------------------------------------------
+
     def f(self, x, *args, **kwargs):
         """
         One of the functions to be minimized.
@@ -107,16 +108,16 @@ class ADMM(object):
         """
         pass
 
-    def x_update(self, z, y, rho, x0 = None, *args, **kwargs):
+    def x_update(self, z, y, rho, x0=None, *args, **kwargs):
         """
-        Perform the optimization 
+        Perform the optimization
             x_{k+1} := argmin_x L(x_{k}, z_{k}, y_{k}, p)
         """
         pass
 
-    def z_update(self, x, y, rho, z0 = None, *args, **kwargs):
+    def z_update(self, x, y, rho, z0=None, *args, **kwargs):
         """
-        Perform the optimization 
+        Perform the optimization
             z_{k+1} := argmin_z L(x_{k+1}, z, y_{k}, p)
         """
         pass
@@ -129,12 +130,12 @@ class ADMM(object):
         x-update (minimizing over f) is performed first.
         """
         pass
-    
-    #-----------------------------------------------------------------
-    # End functions necesarry for ADMM to function 
-    #-----------------------------------------------------------------
 
-    def callstart(self, x0 = None, *args, **kwargs):
+    # ----------------------------------------------------------------
+    # End functions necesarry for ADMM to function
+    # -----------------------------------------------------------------
+
+    def callstart(self, x0=None, *args, **kwargs):
         """
         Call at the beginning of minize for custom child classes
         """
@@ -150,11 +151,11 @@ class ADMM(object):
     def y_update(self, y, x, z, rho):
         """
         Update lagrange multiplier
-        """ 
+        """
         A, B, c = self.A, self.B, self.c
         return y + rho * (A.dot(x) + B.dot(z) - c)
 
-    def cost(self, x, z, f_args = (), g_args = ()):
+    def cost(self, x, z, f_args=(), g_args=()):
         """
         Compute objective function
         """
@@ -177,22 +178,21 @@ class ADMM(object):
         Compute the dual residual, another quantity
         guaranteed to converge in ADMM
         """
-        A, B, c = self.A, self.B, self.c
+        A, B = self.A, self.B
         return rho * A.T.dot(B.dot(z1 - z0))
 
-    def stop(self, r, s, x, z, y, eps_rel, eps_abs, iprint = 0):
+    def stop(self, r, s, x, z, y, eps_rel, eps_abs, iprint=0):
         """
         Compute the stopping criterion of ADMM as discussed
         in section 3.3.1 of Boyd 2010.
         """
         A, B, c = self.A, self.B, self.c
-        Ax = self.A.dot(x)
-        Bz = self.B.dot(z)
-        ATy = self.A.T.dot(y)
+        Ax = A.dot(x)
+        Bz = B.dot(z)
+        ATy = A.T.dot(y)
         eps_pri = (np.sqrt(self.p) * eps_abs
                    + eps_rel * max(Ax.dot(Ax), Bz.dot(Bz), c.dot(c)))
-        eps_dual = (np.sqrt(self.n) * eps_abs 
-                    + eps_rel * ATy.dot(ATy))
+        eps_dual = np.sqrt(self.n) * eps_abs + eps_rel * ATy.dot(ATy)
         if r.dot(r) <= eps_pri and s.dot(s) <= eps_dual:
             return True
         else:
@@ -221,18 +221,18 @@ class ADMM(object):
         maxiter = kwargs.get("z0_maxiter", None)
         atol = kwargs.get("z0_atol", 1E-6)
         btol = kwargs.get("z0_btol", 1E-6)
-        self._z0minsol = ssl.lsqr(self.B, self._z0rhs, iter_lim = maxiter,
-                                  atol = atol, btol = btol, damp = 1E-5)
+        self._z0minsol = ssl.lsqr(self.B, self._z0rhs, iter_lim=maxiter,
+                                  atol=atol, btol=btol, damp=1E-5)
         return self._z0minsol[0]
 
-    def minimize(self, x0 = None, f_args = (), g_args = (),
-                 f_kwargs = {}, g_kwargs = {}, **kwargs):
+    def minimize(self, x0=None, f_args=(), g_args=(),
+                 f_kwargs={}, g_kwargs={}, **kwargs):
         """
         Implementation of the ADMM algorithm as described
         in Boyd 2010. Includes the scheme for updating
         rho as described in section 3.4.1
         input:
-            x0: ndarray of length n, initial x. Defaults 
+            x0: ndarray of length n, initial x. Defaults
                 to random array
         returns:
             optimal x0, message integer
@@ -241,7 +241,7 @@ class ADMM(object):
 
         z0 : ndarray of length m, initial z. Defaults to
             random array
-        y0 : ndarray of length p, initial y. Defaults to 
+        y0 : ndarray of length p, initial y. Defaults to
             random array
         rho : float, initial weighting of augmented term
 
@@ -274,19 +274,19 @@ class ADMM(object):
         z0 = self.start_z(x0, **kwargs)
         y0 = self.start_lagrange_mult(x0, z0, rho, *f_args, **f_kwargs)
         iprint = kwargs.get('iprint', 1)
-    
+
         self.check_shape(x0, "x0", (self.n,))
         self.check_shape(z0, "z0", (self.m,))
         self.check_shape(y0, "y0", (self.p,))
 
-        #Check types
-        assert isinstance(itnlim, int) and itnlim>0, "itnlim must be positive int"
+        # Check types
+        itnmsg = "itnlim must be positive int"
+        assert isinstance(itnlim, int) and itnlim > 0, itnmsg
         assert t_inc > 0, "t_inc must > 0"
         assert t_dec > 0, "t_dec must be 0"
         assert mu > 0, "mu must be 0"
         assert rho > 0, "rho must be 0"
 
-        r0 = self.primal_residual(x0, z0)
         cost = self.cost(x0, z0, f_args, g_args)
 
         if iprint:
@@ -301,22 +301,21 @@ class ADMM(object):
             s = self.dual_residual(z1, z0, rho)
             rho = self.update_rho(rho, t_inc, t_dec, mu, r1, s)
 
-            #Track old values
             x0, z0, y0 = x1.copy(), z1.copy(), y1.copy()
 
             callback(x1, z1, y1, **kwargs)
-            
+
             cost = self.cost(x1, z1, f_args, g_args)
             if iprint > 1:
                 pstr = "Itn {:1}: cost = {:.3e}, rho = {}"
                 self.cprint(pstr.format(itn, cost, rho))
                 pstr = "\tr = {:.3e}, s = {:.3e} "
                 self.cprint(pstr.format(r1.dot(r1), s.dot(s)))
-            
+
             if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
                 msg = 1
                 break
-        
+
         if itn == itnlim - 1:
             msg = 2
 
@@ -330,9 +329,9 @@ class ADMM(object):
         prim = y - y_hat
         dual = self.B.dot(z - z_hat)
         return prim.dot(prim)/rho + rho*dual.dot(dual)
-        
-    def minimize_fastrestart(self, x0 = None, f_args = (), g_args = (),
-                             f_kwargs = {}, g_kwargs = {}, **kwargs):
+
+    def minimize_fastrestart(self, x0=None, f_args=(), g_args=(),
+                             f_kwargs={}, g_kwargs={}, **kwargs):
         """
         Implementation of the ADMM algorithm as described
         in Boyd 2010. Includes the scheme for updating
@@ -340,7 +339,7 @@ class ADMM(object):
         acceleration and a restarting scheme as described in
         Goldstein 2014.
         input:
-            x0: ndarray of length n, initial x. Defaults 
+            x0: ndarray of length n, initial x. Defaults
                 to random array
         returns:
             optimal x0, message integer
@@ -349,9 +348,9 @@ class ADMM(object):
 
         z0 : ndarray of length m, initial z. Defaults to
             random array
-        y0 : ndarray of length p, initial y. Defaults to 
+        y0 : ndarray of length p, initial y. Defaults to
             random array
-        
+
         Parameters effecting convergence of algorithm
         rho : float, initial weighting of augmented term
         eta : float [0,1) for setting how often restarts occur.
@@ -385,25 +384,24 @@ class ADMM(object):
         z0 = self.start_z(x0, **kwargs)
         y0 = self.start_lagrange_mult(x0, z0, rho, *f_args, **f_kwargs)
         iprint = kwargs.get('iprint', 1)
-    
+
         self.check_shape(x0, "x0", (self.n,))
         self.check_shape(z0, "z0", (self.m,))
         self.check_shape(y0, "y0", (self.p,))
 
-        #Check types
-        assert isinstance(itnlim, int) and itnlim>0, "itnlim must be positive int"
+        # Check types
+        itnmsg = "itnlim must be positive int"
+        assert isinstance(itnlim, int) and itnlim > 0, itnmsg
         assert t_inc > 0, "t_inc must > 0"
         assert t_dec > 0, "t_dec must be 0"
         assert mu > 0, "mu must be 0"
         assert rho > 0, "rho must be 0"
         assert 0 <= eta < 1, "eta must be in [0,1)"
 
-        r0 = self.primal_residual(x0, z0)
         cost = self.cost(x0, z0, f_args, g_args)
 
-        #Fast ADMM with restart
         z_hat, y_hat = z0.copy(), y0.copy()
-        alpha0, c0 = 1., np.inf #always accept first accelerated step
+        alpha0, c0 = 1., np.inf  # always accept first accelerated step
 
         if iprint:
             self.cprint("Initial cost = {:.3e}".format(cost))
@@ -423,17 +421,17 @@ class ADMM(object):
                 vel = (alpha0-1)/alpha1
                 z_hat = z1 + vel * (z1 - z0)
                 y_hat = y1 + vel * (y1 - y0)
-            else: #Restart acceleration
+            else:  # Restart acceleration
                 alpha1, z_hat, y_hat = 1., z0.copy(), y0.copy()
                 c1 = c0/eta
                 if iprint > 1:
-                    self.cprint("\t\tRestarted acceleration", color = "red")
+                    self.cprint("\t\tRestarted acceleration", color="red")
 
             x0, z0, y0 = x1.copy(), z1.copy(), y1.copy()
             alpha0, c0 = alpha1, c1
 
             callback(x1, z1, y1, **kwargs)
-            
+
             cost = self.cost(x1, z1, f_args, g_args)
             if iprint > 1:
                 pstr = "Itn {:1}: cost = {:.3e}, rho = {}"
@@ -444,7 +442,7 @@ class ADMM(object):
             if self.stop(r1, s, x1, z1, y1, eps_rel, eps_abs, iprint):
                 msg = 1
                 break
-        
+
         if itn == itnlim - 1:
             msg = 2
 
@@ -453,5 +451,3 @@ class ADMM(object):
             self.cprint("Final cost = {:.3e}".format(cost))
 
         return x1, z1, msg
- 
-
