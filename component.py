@@ -11,20 +11,19 @@ padded g-fields in most modules of pysquid.
 
 import numpy as np
 
+
 class ModelComponent(object):
-    def __init__(self, shape, padding = None, **kwargs):
+    def __init__(self, shape, padding=None, **kwargs):
         """
         shape : (ly, lx) integer tuple of flux image shape
         padding : (py, px) integer tuple of padding for g-field
-        
         """
         self._updateSizes(shape, padding, **kwargs)
 
-    def _updateSizes(self, shape, padding = None, **kwargs):
+    def _updateSizes(self, shape, padding=None, **kwargs):
         """
         shape : (ly, lx) integer tuple of flux image shape
         padding : (py, px) integer tuple of padding for g-field
-        
         """
         self._shape = shape
         self.Ly, self.Lx = shape
@@ -74,8 +73,6 @@ class ModelComponent(object):
         """
         Implemented for each component.
         name is a string naming the parameter,
-        values is a numpy array 
+        values is a numpy array
         """
         pass
-
-
