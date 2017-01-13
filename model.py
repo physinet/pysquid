@@ -14,46 +14,44 @@ from collections import defaultdict
 
 from pysquid.param import ParameterMap
 from pysquid.component import ModelComponent
-from pysquid.linearModel import *
-from pysquid.kernels.magpsf import GaussianKernel 
+import pysquid.linearModel as lm
+from pysquid.kernels.magpsf import GaussianKernel
 from pysquid.util.helpers import curl
 
 
 class FluxModel(ModelComponent):
-    def __init__(self, fluxdata, param_dict = defaultdict(list),
-                 kerneltype = None, extmodel = None, 
-                 padding = None, **kwargs):
+    def __init__(self, fluxdata, param_dict=defaultdict(list),
+                 kerneltype=None, extmodel=None, padding=None, **kwargs):
         """
         input:
-            fluxdata : float array of shape (ly, lx) of flux data to model 
+            fluxdata : float array of shape (ly, lx) of flux data to model
             param_dict : (dict) keys are parameter names, values are numpy
                         arrays
             kerneltype : Subclass of Kernel for computing PSF/M matrix products
 
             extmodel : ResistorNetworkModel for modeling currents outside
-                       fluxdata image 
-                            
+                       fluxdata image
+
             padding : (py, px) tuple of ints for padding g-field outside image
-        **kwargs are passed into Kernels and LinearModel, 
+        **kwargs are passed into Kernels and LinearModel,
                 see kwargs for those classes
         """
         self.fluxdata = fluxdata
-        #self.fluxdataflat = self.fluxdata.flatten()
-        super(FluxModel, self).__init__(fluxdata.shape, padding, **kwargs) 
-        
+        super(FluxModel, self).__init__(fluxdata.shape, padding, **kwargs)
+
         self.pmap = ParameterMap()
         self.gfieldflat = np.zeros(self.N_pad)
 
-        self.kerneltype = kerneltype if kerneltype is not None else GaussianKernel
-        self.kernel = self.kerneltype(self._shape, param_dict['psf_params'], 
+        self.kerneltype = kerneltype or GaussianKernel
+        self.kernel = self.kerneltype(self._shape, param_dict['psf_params'],
                                       padding, **kwargs)
         psf_dependence = [self.kernel]
 
         self.extmodel = extmodel
-        if self.extmodel: 
+        if self.extmodel:
             self.extmodel.padding = self._padding
-            #NOTE: rnet does not use padding in kernel!
-            self.extmodel.kernel = self.kerneltype(self.extmodel._shape, 
+            # NOTE: rnet does not use padding in kernel!
+            self.extmodel.kernel = self.kerneltype(self.extmodel._shape,
                                                    param_dict['psf_params'],
                                                    **kwargs)
             J_ext = param_dict['J_ext'] or np.array([1.])
@@ -61,25 +59,26 @@ class FluxModel(ModelComponent):
             psf_dependence += [self.extmodel.kernel, self.extmodel]
 
         self._setLinearModel()
-        
-        self.pmap.register('psf_params', psf_dependence, 
+
+        self.pmap.register('psf_params', psf_dependence,
                            param_dict['psf_params'])
-        self.pmap.register('sigma', [self.linearModel, self], param_dict['sigma'])
-        self.pmap.register('mu_reg', [self.linearModel], 
+        self.pmap.register('sigma', [self.linearModel, self],
+                           param_dict['sigma'])
+        self.pmap.register('mu_reg', [self.linearModel],
                            np.array([kwargs.get('mu_reg', 2.5)]))
         self.pmap.register('gfieldflat', [self], self.gfieldflat)
 
     def _setLinearModel(self, shape, kernel, padding, **kwargs):
         pass
-       
+
     @property
     def params(self):
         return self.pmap.params.copy()
 
     @property
     def gfield(self):
-        return self.gfieldflat.reshape(self.Ly_pad,-1)
-    
+        return self.gfieldflat.reshape(self.Ly_pad, -1)
+
     @property
     def fluxdataflat(self):
         return self.fluxdata.ravel()
@@ -98,33 +97,33 @@ class FluxModel(ModelComponent):
         if name == 'gfieldflat':
             self.gfieldflat = value
 
-    def updateParamVector(self, param_vec, param_names = None):
-        param_names = param_names if param_names is not None else self.pmap.names
+    def updateParamVector(self, param_vec, param_names=None):
+        param_names = param_names or self.pmap.names
         N = 0
         for name in param_names:
             l = len(self.pmap[name])
             self.pmap.updateParams([name], [param_vec[N:N+l]])
             N += l
 
-    def solveLinearModel(self, params = None, g0 = None, 
-                         ext_flux = None, ext_g = None, verbose=0,
-                         **kwargs):
+    def solveLinearModel(self, params=None, g0=None, ext_flux=None,
+                         ext_g=None, verbose=0, **kwargs):
         if params is not None:
             self.updateParamVector(params)
         if g0 is None:
             g0 = np.sqrt(self.N_pad)*np.random.randn(self.N_pad)
         self.updateParamVector(g0.ravel(), ['gfieldflat'])
         self.computeNLL()
-        if verbose>0:
+        if verbose > 0:
             print("Initial NLL = {:<6.4f}".format(self.NLL))
 
         if self.extmodel:
             ext_g = ext_g if ext_g is not None else self.extmodel.ext_g.ravel()
-            ext_flux = ext_flux if ext_flux is not None else self.extmodel.ext_flux.ravel()
-            #Subtract external loop field from padded flux image
+            ext_flux = self.extmodel.ext_flux.ravel()
+            ext_flux = ext_flux if ext_flux is not None
+            # Subtract external loop field from padded flux image
             Ly_pad, Lx_pad, py, px = self.Ly_pad, self.Lx_pad, self.py, self.px
             self._flux0 = np.zeros((Ly_pad, Lx_pad))
-            self._flux0[py:py+self.Ly,px:px+self.Lx] = self.fluxdata.copy()[:,:]
+            self._flux0[py:py+self.Ly, px:px+self.Lx] = self.fluxdata.copy()[:, :]
             self._flux0 -= self.extmodel.ext_flux
 
             gfieldflat = self.linearModel.solve(self._flux0.ravel(), g0 = g0,
@@ -204,7 +203,7 @@ class FluxModelTVPrior(FluxModel):
                                                padding, **kwargs)
 
     def _setLinearModel(self):
-        self.linearModel = LinearModelTV_ADMM(self)
+        self.linearModel = lm.LinearModelTV_ADMM(self)
 
     def computeResiduals(self, params = None, param_names = None,
                          gfield = None, **kwargs):
@@ -252,7 +251,7 @@ class FluxModelGaussianPrior(FluxModel):
                                                      padding, **kwargs)
 
     def _setLinearModel(self, shape, kernel, padding, **kwargs):
-        self.linearModel = LinearModelOrthProj(shape, kernel, 
+        self.linearModel = lm.LinearModelOrthProj(shape, kernel, 
                                                padding, **kwargs)
 
     def computeResiduals(self, params = None, param_names = None,
