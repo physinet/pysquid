@@ -4,8 +4,9 @@ deconvolve.py
 author: Colin Clement
 date: 2016-12-06
 
-Classes which perform deconvolution. Implemented priors include total variation
-in current (second derivative in g) and finite support (constant g) constraints.
+Classes which perform deconvolution. Implemented priors include total
+variation in current (second derivative in g) and finite support
+(constant g) constraints.
 """
 
 from scipy.optimize import minimize
@@ -20,10 +21,10 @@ from pysquid.util.helpers import makeD2_operators
 from pysquid.opt.admm import ADMM
 
 
-linear_solvers = ['bicg', 'bicgstab', 'cg', 'cgs', 'gmres', 'lgmres', 
+linear_solvers = ['bicg', 'bicgstab', 'cg', 'cgs', 'gmres', 'lgmres',
                   'minres', 'qmr']
-solver_msg = ("Solver must be one of the following\n" + 
-              reduce(lambda u,v: u+', '+v, linear_solvers))
+solver_msg = ("Solver must be one of the following\n" +
+              reduce(lambda u, v: u+', '+v, linear_solvers))
 
 
 class Deconvolver(ADMM):
@@ -39,7 +40,7 @@ class Deconvolver(ADMM):
     associated with our deconvolution problem which is useful for
     solving constrained optimzation problems.
 
-    This class must subclassed to be useful. The following must be 
+    This class must subclassed to be useful. The following must be
     defined in a subclass:
         g
         z_update
@@ -59,34 +60,36 @@ class Deconvolver(ADMM):
             nu      : float, strength of proximal term
             xhat    : ndarray of shape self.n, proximal goal
         """
-        self.kernel = kernel        
+        self.kernel = kernel
         n = kernel.N_pad
-        m = 2 * n #x and y derivatives
+        m = 2 * n  # x and y derivatives
         p = m
         super(Deconvolver, self).__init__(kernel.N_pad, m, p)
 
-        self._oldx = None #warm start for linear solver
-        self._newx = None 
+        self._oldx = None  # warm start for linear solver
+        self._newx = None
 
-        #proximal operator parameters
-        self.nu     = kwargs.get('nu', 0.)
-        self.xhat   = kwargs.get('xhat', np.zeros(n))
+        # proximal operator parameters
+        self.nu = kwargs.get('nu', 0.)
+        self.xhat = kwargs.get('xhat', np.zeros(n))
         assert len(self.xhat) == n, "xhat must be length {}".format(n)
-        
-        #Setup M matrix for Mg = phi
-        m   = lambda g: self.kernel.applyM(g).real.ravel()
-        mt  = lambda g: self.kernel.applyMt(g).real.ravel()
+
+        # Setup M matrix for Mg = phi
+
+        def M(g): return self.kernel.applyM(g).real.ravel()
+
+        def Mt(g): return self.kernel.applyMt(g).real.ravel()
         N, N_pad = self.kernel.N, self.kernel.N_pad
-        self.M = MyLinearOperator((N, N_pad), matvec = m, rmatvec = mt)
+        self.M = MyLinearOperator((N, N_pad), matvec=M, rmatvec=Mt)
 
     def f(self, x, phi, **kwargs):
         """
         Fidelity term and proximity term in generalized deconvolution
         problem.
-        
+
         input:
             x   : ndarray of shape self.n
-            phi : ndarray of shape self.kernel.N 
+            phi : ndarray of shape self.kernel.N
         returns:
             f(x): float, fidelity + proximal terms
         """
@@ -119,10 +122,11 @@ class Deconvolver(ADMM):
             Op  : Linear operator which applies kernel for x_update
         """
         N_pad = self.kernel.N_pad
-        apply_kernel = lambda x: self._apply_x_update_kernel(x, rho)
-        return MyLinearOperator((N_pad, N_pad), matvec = apply_kernel)
 
-    def start_lagrange_mult(self, x0, z0, rho, phi = None, **kwargs):
+        def apply_kernel(x): self._apply_x_update_kernel(x, rho)
+        return MyLinearOperator((N_pad, N_pad), matvec=apply_kernel)
+
+    def start_lagrange_mult(self, x0, z0, rho, phi=None, **kwargs):
         """
         Calculates the initial lagrange multiplier which ensures that
         ADMM is stable if started at the correct x0, z0. The result of
@@ -139,18 +143,16 @@ class Deconvolver(ADMM):
         """
         Op = self._get_x_op(rho)
         A, B, c = self.A, self.B, self.c
-        self._y0rhs = (- Op.dot(x0) + self.M.T.dot(phi) + self.nu * self.xhat 
-                       - rho*A.T.dot(B.dot(z0)-c))
-    
-        maxiter =   kwargs.get('y0_maxiter', None)
-        atol =      kwargs.get('atol', 1E-5)
-        btol =      kwargs.get('atol', 1E-5)
-        
-        self._y0minsol = ssl.lsqr(self.A.T, self._y0rhs, iter_lim = maxiter, 
-                                  atol = atol, btol = btol, damp = 1E-5)
+        self._y0rhs = (- Op.dot(x0) + self.M.T.dot(phi) + self.nu * self.xhat -
+                       rho*A.T.dot(B.dot(z0)-c))
+        maxiter = kwargs.get('y0_maxiter', None)
+        atol = kwargs.get('atol', 1E-5)
+        btol = kwargs.get('atol', 1E-5)
+        self._y0minsol = ssl.lsqr(self.A.T, self._y0rhs, iter_lim=maxiter,
+                                  atol=atol, btol=btol, damp=1E-5)
         return self._y0minsol[0]
 
-    def x_update(self, z, y, rho, x0 = None, phi = None, **kwargs):
+    def x_update(self, z, y, rho, x0=None, phi=None, **kwargs):
         """
         Calculates x_{k+1} = argmin_x 1/2||Mx-phi||^2 + nu/2||x-x^hat||^2
                                       + y^T Ax + rho/2||Ax+Bz-c||^2
@@ -173,45 +175,46 @@ class Deconvolver(ADMM):
                     default is 'minres'
             maxiter: maximum iterations for linear solver, default 250
             tol: tolerance for convergence criterion of linear solver,
-                    default is 1E-6. See docs for solver for specific definition
+                    default is 1E-6. See docs for solver for definitions
 
         #TODO: writeup warm start of linear equation solvers
         """
         A, B, c = self.A, self.B, self.c
         self._oldx = self._oldx if self._oldx is not None else np.zeros(self.n)
-        maxiter     = kwargs.get('maxiter', 250)
-        tol         = kwargs.get('tol', 1E-6)
-        solver_str  = kwargs.get('solver', 'cg')
+        maxiter = kwargs.get('maxiter', 250)
+        tol = kwargs.get('tol', 1E-6)
+        solver_str = kwargs.get('solver', 'cg')
 
         assert phi is not None, "Must provide phi to deconvolve!"
         assert solver_str in linear_solvers, solver_msg
         solver = getattr(ssl, solver_str)
-        
+
         Op = self._get_x_op(rho)
         self._oldOpx = Op.dot(self._oldx)
-        self._rhs  = self.M.T.dot(phi)+self.nu*self.xhat-A.T.dot(y+rho*(B.dot(z)-c))
-        self._rhs -= self._oldOpx #warm start
+        self._rhs = (self.M.T.dot(phi) + self.nu * self.xhat -
+                     A.T.dot(y + rho*(B.dot(z) - c)))
+        self._rhs -= self._oldOpx  # warm start
 
-        self._xminsol = solver(Op, self._rhs, maxiter = maxiter, tol = tol)
+        self._xminsol = solver(Op, self._rhs, maxiter=maxiter, tol=tol)
 
         self._newx = self._xminsol[0] + self._oldx
         self._oldx = self._newx.copy()
         return self._newx
 
-    def callstart(self, x0 = None, **kwargs):
+    def callstart(self, x0=None, **kwargs):
         """
         Ensures that ADMM is started with a warm start for x_update
         that is consistent with the initial guess
         input:
             x0  : ndarray of shape self.n, initial x guess
         """
-        self._oldx = x0 #Reset warm start
+        self._oldx = x0  # Reset warm start
 
 
 class TVDeconvolver(Deconvolver):
     """
     Performs deconvolution of flux image with a
-    total variation prior on currents by minimizing the function 
+    total variation prior on currents by minimizing the function
         1/2||Mx-phi||^2 + gamma*TV(x)
 
     usage:
@@ -219,7 +222,7 @@ class TVDeconvolver(Deconvolver):
         deconvolver.deconvolve(phi, x0, **kwargs)
     """
 
-    def __init__(self, kernel, gamma, g_ext = None, **kwargs):
+    def __init__(self, kernel, gamma, g_ext=None, **kwargs):
         """
         input:
             kernel  : pysquid.Kernel object which can compute
@@ -239,10 +242,10 @@ class TVDeconvolver(Deconvolver):
         self.Dh, self.Dv = makeD2_operators((Ly_pad, Lx_pad), dx, dy)
 
         self.A = vstack([self.Dh, self.Dv])
-        self.B = MyLinearOperator((self.m, self.m), matvec = lambda x: -x)
+        self.B = MyLinearOperator((self.m, self.m), matvec=lambda x: -x)
         if g_ext is None:
             self.c = np.zeros(self.p)
-        else: #No penalty for TV of edge made by exterior loop subtraction
+        else:  # No penalty for TV of edge made by exterior loop subtraction
             self.c = -self.A.dot(g_ext.ravel())
 
     def g(self, z):
@@ -256,7 +259,7 @@ class TVDeconvolver(Deconvolver):
         """
         dx, dy = z[:self.n], z[self.n:]
         return self.gamma * nu.evaluate('sum(sqrt(dx*dx + dy*dy))')
- 
+
     def _lagrangian_dz(self, z, x, y, rho):
         """
         Evaluate the augmented lagrangian (up to a constants not depending
@@ -271,12 +274,11 @@ class TVDeconvolver(Deconvolver):
         r = self.primal_residual(x, z)
         gamma = self.gamma
         xx, yy = z[:self.n], z[self.n:]
-        tv =  nu.evaluate('sqrt(xx*xx + yy*yy)')
+        tv = nu.evaluate('sqrt(xx*xx + yy*yy)')
         lagrangian = gamma * tv.sum() + r.dot(y) + rho*r.dot(r)/2
-        
         d_tv = np.concatenate((xx/tv, yy/tv))
         d_lagrangian = gamma * d_tv + self.B.T.dot(y + rho*r)
-        return lagrangian, d_lagrangian 
+        return lagrangian, d_lagrangian
 
     def z_update(self, x, y, rho, z0, **kwargs):
         """
@@ -295,9 +297,10 @@ class TVDeconvolver(Deconvolver):
             zsteps  : int, maximum number of attempted LBFGS steps,
                         default is 20
         """
-        self._zminsol = minimize(self._lagrangian_dz, z0, args = (x, y, rho,),
-                                 method = 'l-bfgs-b', jac = True, 
-                                 options = {'maxiter': kwargs.get('zsteps', 20)})
+        options = {'maxiter': kwargs.get('zsteps', 20)}
+        self._zminsol = minimize(self._lagrangian_dz, z0, args=(x, y, rho,),
+                                 method='l-bfgs-b', jac=True,
+                                 options=options)
         return self._zminsol['x']
 
     def deconvolve(self, phi, x0, **kwargs):
@@ -309,14 +312,14 @@ class TVDeconvolver(Deconvolver):
             x0  : ndarray of shape self.n, initial guess for x (or g)
         returns:
             x (or g)    : ndarray of shape self.n, solution of deconvolution
-        
+
         kwargs:
-            maxiter     : int, maximum number of steps for linear solver in 
+            maxiter     : int, maximum number of steps for linear solver in
                             x_update, default is 200
             tol         : float, tolerance for linear solver in x_update,
                             default is 1E-6
             solver      : str, specific linear solver for x_update.
-                            default is 'minres', choose from scipy.sparse.linalg
+                            default is 'minres', more in scipy.sparse.linalg
             zsteps      : float, number of iterations allowed for z_update
                             default is 20
             algorithm   : str, either 'minimize' (default) for standard ADMM
@@ -327,18 +330,18 @@ class TVDeconvolver(Deconvolver):
         """
         f_args = (phi,)
         f_kwargs = {}
-        f_kwargs['maxiter'] =   kwargs.get('maxiter', 200)
-        f_kwargs['tol']     =   kwargs.get('tol', 1E-6)
-        f_kwargs['solver']  =   kwargs.get('solver', 'minres')
+        f_kwargs['maxiter'] = kwargs.get('maxiter', 200)
+        f_kwargs['tol'] = kwargs.get('tol', 1E-6)
+        f_kwargs['solver'] = kwargs.get('solver', 'minres')
 
         g_args = ()
         g_kwargs = {}
-        g_kwargs['zsteps']  =   kwargs.get('zsteps', 20)
+        g_kwargs['zsteps'] = kwargs.get('zsteps', 20)
 
         algorithm = kwargs.get("algorithm", "minimize")
         minimizer = getattr(self, algorithm)
 
-        xmin, _, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs, 
+        xmin, _, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs,
                                  **kwargs)
         return xmin
 
@@ -347,7 +350,7 @@ class TVFiniteSupportDeconvolve(ADMM):
     """
     Deconvolve with total variation and finite support prior.
 
-    This class solves the optimization problem 
+    This class solves the optimization problem
 
     x* = argmin_x I_c(x) + g(x)
 
@@ -361,7 +364,7 @@ class TVFiniteSupportDeconvolve(ADMM):
         deconvolver.deconvolve(phi, x0, **kwargs)
     """
 
-    def __init__(self, kernel, gamma, g_mask, g_ext = None, **kwargs):
+    def __init__(self, kernel, gamma, g_mask, g_ext=None, **kwargs):
         n = kernel.N_pad
         m = n
         p = m
@@ -371,9 +374,9 @@ class TVFiniteSupportDeconvolve(ADMM):
         self.gamma = gamma
         self.set_mask(g_mask)
 
-        self._zminsol = None #Warm start
-        self.A = MyLinearOperator((self.m, self.m), matvec = lambda x:  x)
-        self.B = MyLinearOperator((self.m, self.m), matvec = lambda x: -x)
+        self._zminsol = None  # Warm start
+        self.A = MyLinearOperator((self.m, self.m), matvec=lambda x:  x)
+        self.B = MyLinearOperator((self.m, self.m), matvec=lambda x: -x)
         self.c = np.zeros(self.p)
 
         # proximal operator for g(z) solves
@@ -382,24 +385,23 @@ class TVFiniteSupportDeconvolve(ADMM):
 
     def set_mask(self, mask):
         """
-        Set mask which defines the regions of the model which have some constant
+        Set mask which defines regions of the model which have some constant
         value. Contiguous regions of value 1 will be forced to be constant,
         separated regions of 1 will be allowed to have different constants.
-        
         input:
             mask : ndarray of shape (self.kernel._padshape)
         """
-        assert mask.shape == self.kernel._padshape, "mask must match kernel shape"
+        assert mask.shape == self.kernel._padshape, "mask is incorrect shape"
         self.g_mask = mask
         indices = np.arange(mask.size).reshape(*mask.shape)
         labels, num = label(mask)
-        self.region_indices = [indices[labels==i] for i in range(1, num+1)]
+        self.region_indices = [indices[labels == i] for i in range(1, num+1)]
 
     def project_onto_c(self, x):
         """
         Projects x onto the set c, which is the set of images which have a
         constant value in the regions defined by self.g_mask.
-        
+
         input:
             x   : ndarray of shape (self.n)
         output:
@@ -418,7 +420,7 @@ class TVFiniteSupportDeconvolve(ADMM):
         input:
             x   : ndarray of shape self.n, x-value
         """
-        return 0. #Because x + infinity = infinity
+        return 0.
 
     def g(self, z, *args, **kwargs):
         """
@@ -437,7 +439,7 @@ class TVFiniteSupportDeconvolve(ADMM):
         res = self.prox_g.M.dot(z) - phi
         return res.dot(res)/2 + self.gamma * tv
 
-    def x_update(self, z, y, rho, x0 = None, *args, **kwargs):
+    def x_update(self, z, y, rho, x0=None, *args, **kwargs):
         """
         Solves argmin_x I_c(x) + y^T x + rho/2||x-z||^2
                 (complete the square)
@@ -454,7 +456,7 @@ class TVFiniteSupportDeconvolve(ADMM):
         self._xminsol = self.project_onto_c(z - y/rho)
         return self._xminsol
 
-    def z_update(self, x, y, rho, z0 = None, *args, **kwargs):
+    def z_update(self, x, y, rho, z0=None, *args, **kwargs):
         """
         Solves argmin_z -y^T z + g(z) where g(z) is our TV deconvolution
         function. Simply uses TVDeconvolver for this optimization.
@@ -478,18 +480,18 @@ class TVFiniteSupportDeconvolve(ADMM):
         self.prox_g.xhat = x + y/rho
         if self._zminsol is None:
             z0 = np.random.randn(self.n)/np.sqrt(self.n)
-        else: #warm start
+        else:  # warm start
             z0 = self._zminsol.copy()
         z_rho = kwargs.get('z_rho', 1E-2)
-        self._zminsol = self.prox_g.deconvolve(phi, z0, rho = z_rho, **kwargs)
+        self._zminsol = self.prox_g.deconvolve(phi, z0, rho=z_rho, **kwargs)
         return self._zminsol
 
-    def callstart(self, x0 = None, **kwargs):
-        self._zminsol = None #Reset warm start
-    
+    def callstart(self, x0=None, **kwargs):
+        self._zminsol = None  # Reset warm start
+
     def start_lagrange_mult(self, x0, z0, rho, *f_args, **f_kwargs):
         """
-        Initializes lagrange multiplier for stability. This statement can be 
+        Initializes lagrange multiplier for stability. This statement can be
         found by writing the x_update x = P(z-y/rho), multiplying both sides
         by P, solving for P(y).
         input:
@@ -501,7 +503,7 @@ class TVFiniteSupportDeconvolve(ADMM):
         """
         return rho * self.project_onto_c(z0 - x0)
 
-    def deconvolve(self, phi, x0, options = {}, **kwargs):
+    def deconvolve(self, phi, x0, options={}, **kwargs):
         """
         Perform a deconvolution of data phi with provided kernel.
 
@@ -528,23 +530,21 @@ class TVFiniteSupportDeconvolve(ADMM):
 
         g_args = (phi,)
         g_kwargs = {}
-        g_kwargs["algorithm"]   =   options.get("algorithm", "minimize")
-        g_kwargs['maxiter']     =   options.get('maxiter', 20)
-        g_kwargs['tol']         =   options.get('tol', 1E-6)
-        g_kwargs['solver']      =   options.get('solver', 'minres')
-        g_kwargs['zsteps']      =   options.get('zsteps', 20)
-        g_kwargs['z_rho']       =   options.get("rho", 1E-2)
-        g_kwargs['iprint']      =   options.get('iprint', 1)
-        g_kwargs['eps_abs']     =   options.get('eps_abs', 1E-5)
-        g_kwargs['eps_rel']     =   options.get('eps_rel', 1E-5)
+        g_kwargs["algorithm"] = options.get("algorithm", "minimize")
+        g_kwargs['maxiter'] = options.get('maxiter', 20)
+        g_kwargs['tol'] = options.get('tol', 1E-6)
+        g_kwargs['solver'] = options.get('solver', 'minres')
+        g_kwargs['zsteps'] = options.get('zsteps', 20)
+        g_kwargs['z_rho'] = options.get("rho", 1E-2)
+        g_kwargs['iprint'] = options.get('iprint', 1)
+        g_kwargs['eps_abs'] = options.get('eps_abs', 1E-5)
+        g_kwargs['eps_rel'] = options.get('eps_rel', 1E-5)
 
         algorithm = kwargs.get("algorithm", "minimize")
         minimizer = getattr(self, algorithm)
         self.prox_g.defaultprintcolor = kwargs.get("gcolor", "purple")
-        self.prox_g.appendprint = "\t" #indent inner admm messages
+        self.prox_g.appendprint = "\t"  # indent inner admm messages
 
-        xmin, zmin, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs, 
+        xmin, zmin, msg = minimizer(x0, f_args, g_args, f_kwargs, g_kwargs,
                                     **kwargs)
         return xmin
-
-
