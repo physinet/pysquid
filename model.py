@@ -118,8 +118,8 @@ class FluxModel(ModelComponent):
 
         if self.extmodel:
             ext_g = ext_g if ext_g is not None else self.extmodel.ext_g.ravel()
-            ext_flux = self.extmodel.ext_flux.ravel()
-            ext_flux = ext_flux if ext_flux is not None
+            if ext_flux is None:
+                ext_flux = self.extmodel.ext_flux.ravel()
             # Subtract external loop field from padded flux image
             Ly_pad, Lx_pad, py, px = self.Ly_pad, self.Lx_pad, self.py, self.px
             self._flux0 = np.zeros((Ly_pad, Lx_pad))
