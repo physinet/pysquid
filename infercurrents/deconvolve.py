@@ -123,7 +123,7 @@ class Deconvolver(ADMM):
         """
         N_pad = self.kernel.N_pad
 
-        def apply_kernel(x): self._apply_x_update_kernel(x, rho)
+        def apply_kernel(x): return self._apply_x_update_kernel(x, rho)
         return MyLinearOperator((N_pad, N_pad), matvec=apply_kernel)
 
     def start_lagrange_mult(self, x0, z0, rho, phi=None, **kwargs):
