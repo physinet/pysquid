@@ -29,7 +29,7 @@ rgba = rotate(loadpng(os.path.join(loc, '../../../katja/MicroscopePicture.png'))
 immask = (rgba[:,:,1]<0.0075)*(rgba[:,:,0]<0.00125)
 h, w, _ = rgba.shape
 
-closed = immask[10:h/2,75:-70]
+closed = immask[10:h//2,75:-70]
 #plt.matshow(closed, cmap='Greys')
 labelled, num = ndi.label(closed)
 
