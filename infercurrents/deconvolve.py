@@ -24,7 +24,7 @@ from pysquid.opt.admm import ADMM
 linear_solvers = ['bicg', 'bicgstab', 'cg', 'cgs', 'gmres', 'lgmres',
                   'minres', 'qmr']
 solver_msg = ("Solver must be one of the following\n" +
-              reduce(lambda u, v: u+', '+v, linear_solvers))
+              ', '.join(linear_solvers))
 
 
 class Deconvolver(ADMM):

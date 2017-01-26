@@ -1,10 +1,6 @@
-from __future__ import print_function
 import sys, os
 import numpy as np
-try:
-    import cPickle as pickle
-except ImportError as er:
-    import pickle
+import pickle
 try:
     from pyfftw import *
     hasfftw = True

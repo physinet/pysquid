@@ -144,9 +144,9 @@ class ADMM(object):
     @staticmethod
     def check_callback(callback):
         cbackstr = "callback function must have at least 3 args (x, z, y)"
-        assert callback.func_code.co_argcount > 2, cbackstr
+        assert callback.__code__.co_argcount > 2, cbackstr
         kstr = "callback should accept kwargs"
-        assert "kwargs" in callback.func_code.co_varnames, kstr
+        assert "kwargs" in callback.__code__.co_varnames, kstr
 
     def y_update(self, y, x, z, rho):
         """
