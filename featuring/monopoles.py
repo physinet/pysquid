@@ -10,7 +10,7 @@ date: 2016-09-21
 import numpy as np
 
 from pysquid.opt import leastsq
-from pysquid.parametermap import ParameterMap
+#from pysquid.parametermap import ParameterMap
 from pysquid.kernels import psf
 from pysquid.component import ModelComponent
 from pysquid.featuring.fields import monopoleField, grad_monopoleField
