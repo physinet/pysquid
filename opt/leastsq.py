@@ -5,12 +5,10 @@ from scipy.linalg import solve, LinAlgError
 
 
 class LM(object):
-    def __init__(self, N, M, res, jac, args = ()):
+    def __init__(self, res, jac, args = ()):
     	"""
     	Custom implementation of Levenburg-Marqardt.
     	input:
-    	    N: int, number of residuals
-    	    M: int, number of parameters
     	    res: function which takes parameter arrays of length M
     	        and optionally specified args
     	    jac: function which takes paramter arrays of length M
@@ -18,8 +16,6 @@ class LM(object):
     	    args: tuple of positional arguments to be passed into res
     	        and jac
     	"""
-        self.N = N #number of residuals
-        self.M = M #number of parameters
         self.res = res
         self.jac = jac
         self.args = args
@@ -28,8 +24,8 @@ class LM(object):
                         1: 'Maximum number of iterations reached',
                         2: 'Convergence criterion satisfied'}
 
-    def leastsq(self, p0, maxiter = 20, delta = 1E-3, accept = 10, 
-                reject = 4, iprint = 1, **kwargs):
+    def leastsq(self, p0, maxiter = 20, delta = 1E-3, accept = 10., 
+                reject = 4., iprint = 1, **kwargs):
         """
         A custom implementation of the Levenburg Marquardt least-squares 
         optimization algorithm.
@@ -54,10 +50,8 @@ class LM(object):
             message = 1 if the algorithm reach max iterations
             message = 2 is algorithm achieved convergence criterion
         """
-        lamb = kwargs.get('lamb', 10) #start with small downward grad steps
+        lamb = float(kwargs.get('lamb', 10.)) #start with small downward grad steps
         maxtries = kwargs.get('maxtries', .1)
-
-        N, M = self.N, self.M
 
         p1 = copy(p0)
         for itn in range(maxiter):
@@ -76,12 +70,16 @@ class LM(object):
                     self._report = [p1, trial, lamb]
                     return p1, message
                 try:
-                    self._delta = solve(JTJ + lamb * np.identity(M), JTr)
+                    JTJ[np.diag_indices_from(JTJ)] += lamb
+                    self._delta = solve(JTJ, JTr)
+                    JTJ[np.diag_indices_from(JTJ)] -= lamb
                 except LinAlgError as er:
                     print("\tSingular matrix, lamb = {}".format(lamb))
+                    JTJ[np.diag_indices_from(JTJ)] -= lamb
                     lamb *= reject
                     tries += 1
                     continue
+                # Reset JTJ diagonals
 
                 trial = p1 - self._delta
 
