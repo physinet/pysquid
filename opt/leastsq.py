@@ -6,8 +6,8 @@ from scipy.linalg import solve, LinAlgError
 
 class LM(object):
     def __init__(self, res, jac, args = ()):
-    	"""
-    	Custom implementation of Levenburg-Marqardt.
+        """
+        Custom implementation of Levenburg-Marqardt.
     	input:
     	    res: function which takes parameter arrays of length M
     	        and optionally specified args
