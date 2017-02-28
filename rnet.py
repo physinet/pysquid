@@ -46,6 +46,10 @@ class ResistorNetworkModel(ModelComponent):
         padding : (py, px) tuple of ints, padding of sample g for model
 
         kwargs:
+        resistors : array_like of shape ((Lx+1)*(Ly+1)) 
+            resistances of mesh surrounding mask pixels
+        blur : array_like of shape (2)
+            sigma_x, sigma_y of blur kernel to smooth distribution
         deltaV :    (float) is the applied voltage
                     (to the top and bottom unless otherwise specified)
         electrodes : list of two integers [cathode, anode]. Default is
@@ -56,23 +60,24 @@ class ResistorNetworkModel(ModelComponent):
         self.flatmask = self.mask.flatten()
         super(ResistorNetworkModel, self).__init__(mask.shape, **kwargs)
 
+        self.deltaV = kwargs.get('deltaV', 1.)
+        self._setupGridsNumbers()
+        Ly, Lx = self.Ly, self.Lx
+
         self.kernel = kernel
         self.phi_offset = phi_offset if phi_offset is not None else [0, 0]
-        self.gshape = gshape if gshape is not None else (self.Ly, self.Lx)
+        self.gshape = gshape if gshape is not None else (Ly, Lx)
         self.padding = padding if padding is not None else [0, 0]
+        self.resistors = kwargs.get('resistors', np.ones(self.N_hor+self.N_ver))
         self._blur = kwargs.get('blur', [2., 2.])
         self.blurkernel = GaussianBlurKernel(self._shape, self._blur,
                                              dx=1., dy=1.)
 
-        self.deltaV = kwargs.get('deltaV', 1.)
-        self.J_ext = np.array([1.])
-
-        self._setupGridsNumbers()
-
-        self.electrodes = np.array([0, self.Lx])
+        self.electrodes = kwargs.get('electrodes', np.array([0, self.Lx]))
 
         self._constructSparseMatricesAndCholesky()
         self.solveRnet()
+        self.updateParams('J_ext', [1.])
 
     def __setstate__(self, d):
         self.__dict__ = d
@@ -143,7 +148,7 @@ class ResistorNetworkModel(ModelComponent):
             self.meshEdges[mesh] = mesh_edges
             row += [mesh]
             col += [mesh]
-            data += [4.]  # Four resistors per square, modify for variable R
+            data += [self.resistors[mesh_edges].sum()]
 
             upper_left = i+i//Lx
             self.G.add_edge(upper_left, upper_left+1, label=i)
@@ -160,7 +165,7 @@ class ResistorNetworkModel(ModelComponent):
                     if neigh_mask:
                         row += [mesh]
                         col += [mesh_neigh_no]
-                        data += [-1.]  # one resistor, counter rotating
+                        data += [-self.resistors[edge]]  # one resistor, counter rotating
                 else:
                     inside = False
                     neigh_mask = 0
@@ -194,51 +199,41 @@ class ResistorNetworkModel(ModelComponent):
         except nx.NetworkXNoPath as patherr:
             print("Cathode/anode choice are not connected by a path")
             raise patherr
-        self._voltagePath = np.array([G.edge[nPath[n]][nPath[n+1]]['label']
+        self._global_edge_path = np.array([G.edge[nPath[n]][nPath[n+1]]['label']
                                       for n in range(len(nPath)-1)])
-        self.meshEdges[self.N_loops-1] = self._voltagePath.copy()
-        voltageOrient = []
-        for edge, n1, n2 in zip(self._voltagePath, nPath[:-1], nPath[1:]):
-            voltageOrient += [1 if n1 < n2 else -1]
+        self.meshEdges[self.N_loops-1] = self._global_edge_path
+        orientation = [1, 1, -1, -1]  # leftdownrightup order as above
+        for edge, n1, n2 in zip(self._global_edge_path, nPath[:-1], nPath[1:]):
             for m in self.edgeMeshes[edge]:
-                # NOTE: Assumes meshEdges were made in CCW order as above
-                try:
-                    loopOrient = [1, 1, -1, -1][self.meshEdges[m].index(edge)]
-                except ValueError:
-                    print(edge, m)
-                    raise
+                orient_edge = orientation[self.meshEdges[m].index(edge)]
+                orient_edge = (2*(n1 < n2)-1)*orient_edge
 
                 row += [m]
                 col += [self.N_loops-1]
-                data += [voltageOrient[-1] * loopOrient]
+                data += [self.resistors[edge]*orient_edge]
 
                 row += [self.N_loops-1]
                 col += [m]
-                data += [voltageOrient[-1] * loopOrient]
+                data += [self.resistors[edge]*orient_edge]
+            
             self.edgeMeshes[edge] += [self.N_loops-1]
 
         row += [self.N_loops-1]
         col += [self.N_loops-1]
-        data += [len(self._voltagePath)]
-
-        self._voltageOrient = np.array(voltageOrient)
+        data += [self.resistors[self._global_edge_path].sum()]
 
         # Find squares inside global loop
-        topclosed = np.arange(*self.electrodes)
-        self._voltagePath = np.r_[self._voltagePath, topclosed]
-        self._voltageOrient = np.r_[self._voltageOrient,
-                                    -1*np.ones_like(topclosed)]
+        closedpath = np.r_[self._global_edge_path, np.arange(*self.electrodes)]
         hpaths = np.zeros((self.Ly+1, self.Lx))
         vpaths = np.zeros((self.Ly, self.Lx+1))
-        N_hor = self.N_hor
-        h_indices = self._voltagePath[self._voltagePath < N_hor]
-        v_indices = self._voltagePath[self._voltagePath > N_hor] - N_hor
+        h_indices = closedpath[closedpath < self.N_hor]
+        v_indices = closedpath[closedpath > self.N_hor] - self.N_hor
         for hh in h_indices:
-            hpaths[hh/self.Lx, hh % self.Lx] = 1.
+            hpaths[hh//self.Lx, hh % self.Lx] = 1.
         for vv in v_indices:
-            vpaths[vv/(self.Lx+1), vv % (self.Lx+1)] = 1.
+            vpaths[vv//(self.Lx+1), vv % (self.Lx+1)] = 1.
         hfill = np.cumsum(hpaths, axis=0)[:-1] == 1
-        vfill = np.cumsum(vpaths, axis=1)[:, :-1] == 1
+        vfill = np.cumsum(vpaths, axis=1)[:,:-1] == 1
         self._globalLoopPatch = 1 * (hfill * vfill)
         return (data, (row, col))
 
@@ -264,6 +259,7 @@ class ResistorNetworkModel(ModelComponent):
         if np.any(np.isnan(self.meshCurrents)):
             self.N_singular_evals += 1
             return True
+        self.gfield_noblur = self.gfield.copy()
         self.gfield[:, :] = self.blurkernel.applyM(self.gfield).real
         return False
 
