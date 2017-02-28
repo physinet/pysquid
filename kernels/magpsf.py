@@ -95,7 +95,7 @@ class MogKernel(Kernel):
             raise RuntimeError("psf_params must be of size 5n+1")
         super(MogKernel, self).__init__(shape, self.psf_params, padding,
                                         **kwargs)
-        self.N_g = (self.psf_params.size-1) / 5
+        self.N_g = (self.psf_params.size-1) // 5
         self._updatePSF()
         self._updateMPSF()
 
