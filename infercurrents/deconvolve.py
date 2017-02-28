@@ -215,7 +215,7 @@ class TVDeconvolver(Deconvolver):
     """
     Performs deconvolution of flux image with a
     total variation prior on currents by minimizing the function
-        1/2||Mx-phi||^2 + gamma*TV(x)
+        1/2||Mx-phi||^2 + nu/2||x-x^hat||^2 + gamma*TV(x)
 
     usage:
         deconvolver = TVDeconvolver(kernel, gamma, g_ext)
@@ -243,6 +243,9 @@ class TVDeconvolver(Deconvolver):
 
         self.A = vstack([self.Dh, self.Dv])
         self.B = MyLinearOperator((self.m, self.m), matvec=lambda x: -x)
+        self.set_g_ext(g_ext)
+
+    def set_g_ext(self, g_ext=None):
         if g_ext is None:
             self.c = np.zeros(self.p)
         else:  # No penalty for TV of edge made by exterior loop subtraction
@@ -303,13 +306,14 @@ class TVDeconvolver(Deconvolver):
                                  options=options)
         return self._zminsol['x']
 
-    def deconvolve(self, phi, x0, **kwargs):
+    def deconvolve(self, phi, x0=None, **kwargs):
         """
         Perform a deconvolution of data phi with provided kernel.
 
         input:
             phi : ndarray of shape self.kernel.N, data to be analyzed
             x0  : ndarray of shape self.n, initial guess for x (or g)
+                default is random vector roughly normalized
         returns:
             x (or g)    : ndarray of shape self.n, solution of deconvolution
 
@@ -328,6 +332,8 @@ class TVDeconvolver(Deconvolver):
              or ADMM.minimize_fastrestart. See for documentation)
 
         """
+        x0 = x0 if x0 is not None else np.random.randn(self.n)/np.sqrt(self.n)
+
         f_args = (phi,)
         f_kwargs = {}
         f_kwargs['maxiter'] = kwargs.get('maxiter', 200)
@@ -503,13 +509,14 @@ class TVFiniteSupportDeconvolve(ADMM):
         """
         return rho * self.project_onto_c(z0 - x0)
 
-    def deconvolve(self, phi, x0, options={}, **kwargs):
+    def deconvolve(self, phi, x0=None, options={}, **kwargs):
         """
         Perform a deconvolution of data phi with provided kernel.
 
         input:
             phi     : ndarray of shape self.kernel.N, data to be analyzed
             x0      : ndarray of shape self.n, initial guess for x (or g)
+                default is roughly normalized random vector
             options : dictionary which is passed as kwargs to self.z_update
                         for setting kwargs of TVDeconvolver.deconvolve
         returns:
@@ -524,6 +531,7 @@ class TVFiniteSupportDeconvolve(ADMM):
              or ADMM.minimize_fastrestart. See for documentation)
 
         """
+        x0 = x0 if x0 is not None else np.random.randn(self.n)/np.sqrt(self.n)
         x0 = self.project_onto_c(x0)
 
         f_args, f_kwargs = (), {}
