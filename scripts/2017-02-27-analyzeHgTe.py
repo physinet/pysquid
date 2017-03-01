@@ -56,30 +56,32 @@ for n, sc in enumerate(datarec):
     print("{}: Reconstructing for V={}".format(n, sc[0]))
     fluxdata = sc[1]['scan'].copy()
     J_ext = topedge.dot(fluxdata[0])/topedge.dot(topedge)
-    sigma_est = hpr.noise_estimate(fluxdata)/2.
+    sigma_est = hpr.noise_estimate(fluxdata)
 
     solver.gamma = mu * sigma_est**2
     print("Gamma = {}".format(solver.gamma))
     solver.set_g_ext(J_ext * netmodel.ext_g)
     subflux = (fluxdata - J_ext * netmodel.ext_flux).ravel()
-    gsol = solver.deconvolve(subflux, iprint=1, rho=solver.gamma/10.,
-                             algorithm='minimize_fastrestart', itnlim=80)
+    # Indent printing for easier reading
+    solver.appendprint = "\t"
+    gsol0 = solver.deconvolve(subflux, iprint=1, rho=solver.gamma/10.,
+                             algorithm='minimize_fastrestart', itnlim=100)
 
-    res = solver.M.dot(gsol) - subflux
-    sigma_meas = res.std()
-    solver.gamma = mu * sigma_meas**2
+    #res = solver.M.dot(gsol) - subflux
+    #sigma_meas = res.std()
+    #solver.gamma = mu * sigma_meas**2
 
-    print("Re-fitting with gamma={}".format(solver.gamma))
-    gsol = solver.deconvolve(subflux, iprint=1, rho=solver.gamma/10.,
-                             algorithm='minimize_fastrestart', itnlim=80)
+    #print("Re-fitting with gamma={}".format(solver.gamma))
+    #gsol = solver.deconvolve(subflux, iprint=1, rho=solver.gamma/10.,
+    #                         algorithm='minimize_fastrestart', itnlim=80)
     
-    sc[1]['g_sol'] = gsol.reshape(*kern._padshape)
+    sc[1]['g_sol'] = gsol0.reshape(*kern._padshape)
     sc[1]['ext_flux'] = J_ext * netmodel.ext_flux
     sc[1]['ext_g'] = J_ext * netmodel.ext_g.copy()
-    sc[1]['model_flux'] = solver.M.dot(gsol).reshape(*kern._shape) + J_ext*netmodel.ext_flux
+    sc[1]['model_flux'] = solver.M.dot(gsol0).reshape(*kern._shape) + J_ext*netmodel.ext_flux
     sc[1]['J_ext'] = J_ext 
     sc[1]['psf_params'] = pdict['psf_params'].copy()
-    sc[1]['sigma'] = (solver.M.dot(gsol)-subflux.ravel()).std()
+    sc[1]['sigma'] = (solver.M.dot(gsol0)-subflux.ravel()).std()
     sc[1]['gamma'] = solver.gamma
     
     #Save updated datarec
