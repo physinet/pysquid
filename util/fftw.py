@@ -27,8 +27,8 @@ class WrapFFTW(object):
            with open(self.wisdomfile, 'rb') as infile:
                self._wisdom = pickle.load(infile)
            self._gotwisdom = import_wisdom(self._wisdom)
-       except IOError, TypeError:
-           pass
+       except (IOError, TypeError) as tioerr:
+           pass  # either no wisdom or bad pickle version
 
        self.data = n_byte_align(np.zeros(self.shape), 16, 'complex128')
        self.data_k = n_byte_align(np.zeros(self.shape), 16, 'complex128')

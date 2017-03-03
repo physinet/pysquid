@@ -17,7 +17,7 @@ import numexpr as nu
 from numpy.fft import fftshift
 from copy import copy
 from pysquid.component import ModelComponent
-from pysquid.util.FFTW import WrapFFTW
+from pysquid.util.fftw import WrapFFTW
 from pysquid.util.helpers import _mult
 
 

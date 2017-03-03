@@ -16,7 +16,7 @@ import scipy.sparse.linalg as spl
 
 from pysquid.util.linearOperator import MyLinearOperator
 from pysquid.linearModel import LinearModel
-from pysquid.util.FFTW import WrapFFTW
+from pysquid.util.fftw import WrapFFTW
 
 
 class LinearModel_finitek_ADMM(LinearModel):
