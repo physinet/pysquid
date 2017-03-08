@@ -136,8 +136,6 @@ class PlatonicKernel(PSFKernel):
             p0[ip] += self.h/2.
             self.d_PSF_k[:,:,ip] = self.fftw.fft(self.d_PSF[:,:,ip])
 
-    #TODO: gradients of width and keyamp still get stuck at 0
-
     @staticmethod
     def get_logp(params):
         """
@@ -145,8 +143,6 @@ class PlatonicKernel(PSFKernel):
         """
         logp = np.log(params)
         p2, p3 = params[2:4]
-        #logp[2] = np.log(p2/(1-p2)) #invexpit
-        #logp[3] = np.log(p3/(1-p3)) #invexpit
         logp[2], logp[3] = logit(params[2:4])
         return logp
 
@@ -157,8 +153,6 @@ class PlatonicKernel(PSFKernel):
         """
         p = np.exp(params)
         p[2:4] = expit(params[2:4])
-        #p[2] = expit(params[2]) #width in (0,1)
-        #p[3] = expit(params[3]) #keyamp in (0,1)
         return p
 
     @property
