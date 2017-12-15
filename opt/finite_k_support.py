@@ -16,7 +16,7 @@ import scipy.sparse.linalg as spl
 
 from pysquid.util.linearOperator import MyLinearOperator
 from pysquid.linearModel import LinearModel
-from pysquid.util.FFTW import WrapFFTW
+from pysquid.util.fftw import WrapFFTW
 
 
 class LinearModel_finitek_ADMM(LinearModel):
@@ -147,7 +147,7 @@ class LinearModel_finitek_ADMM(LinearModel):
         if iprint:
             print("Initial NLL = {}".format(self.computeNLL(flux, g0)))
 
-        for i in xrange(itnlim):
+        for i in range(itnlim):
             g1[:] = self._update_g(h0, lamb0, **kwargs)
             h1[:] = self._update_h(g1)
           

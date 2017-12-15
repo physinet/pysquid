@@ -19,6 +19,21 @@ def testConvolution(kernelType, psf_params = None, shape = (10, 10),
     rmserror = np.sqrt(np.mean((fftConv - trueConv)**2))
     return rmserror, kernel, M
 
+def testTranspose(kernelType, psf_params = None, shape = (10,10),
+                  padding = (2,2), gtest = None, phitest = None, **kwargs):
+    kernel = kernelType(shape, psf_params, padding, cutoff = False, **kwargs)
+    MPSF = np.fft.fftshift(kernel.MPSF.copy()).real
+    M = makeM(MPSF, padding)
+    gtest = gtest if gtest is not None else np.random.randn(kernel.N_pad)
+    phitest = phitest if phitest is not None else np.random.randn(kernel.N)
+    fftConv = kernel.applyM(gtest).real.ravel()
+    fftMT = kernel.applyMt(phitest).real.ravel()
+    trueConv = M.dot(gtest.ravel())
+    trueMT = M.T.dot(phitest.ravel())
+    rmserror = np.sqrt(np.mean((fftConv - trueConv)**2))
+    rmserrorMt = np.sqrt(np.mean((fftMT - trueMT)**2))
+    return rmserror, rmserrorMt
+
 def testGradient(kernelType, psf_params = None, shape = (10, 10),
                  padding = (2,2), gtest = None, stepsize = 1E-7, **kwargs):
     kernel = kernelType(shape, psf_params, padding, cutoff = False, **kwargs)

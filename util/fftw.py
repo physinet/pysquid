@@ -1,14 +1,14 @@
-from __future__ import print_function
 import sys, os
 import numpy as np
-import cPickle as pickle
-relative_path = __file__
+import pickle
 try:
     from pyfftw import *
     hasfftw = True
 except ImportError:
     print('PYFFTW not found, please "pip install pyfftw" for up to 20x speedup')
     hasfftw = False
+
+relative_path = __file__
 
 
 class WrapFFTW(object):
@@ -27,8 +27,8 @@ class WrapFFTW(object):
            with open(self.wisdomfile, 'rb') as infile:
                self._wisdom = pickle.load(infile)
            self._gotwisdom = import_wisdom(self._wisdom)
-       except IOError:
-           pass
+       except (IOError, TypeError) as tioerr:
+           pass  # either no wisdom or bad pickle version
 
        self.data = n_byte_align(np.zeros(self.shape), 16, 'complex128')
        self.data_k = n_byte_align(np.zeros(self.shape), 16, 'complex128')
@@ -43,7 +43,7 @@ class WrapFFTW(object):
        
        self._wisdom = export_wisdom()
        with open(self.wisdomfile, 'wb') as outfile:
-           pickle.dump(self._wisdom, outfile, -1) 
+           pickle.dump(self._wisdom, outfile, 0) 
 
    def fft(self, inp):
        self.data[:,:] = inp

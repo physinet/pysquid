@@ -1,5 +1,5 @@
 """
-monopoleField.py
+fields.py
 
 author: Colin Clement
 date: 2016-09-21

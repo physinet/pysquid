@@ -22,16 +22,17 @@ from scipy.optimize import minimize
 from copy import copy
 from itertools import product
 
-from pykrylov.lls import LSQRFramework, LSMRFramework
-from pykrylov.linop import * #LinearOperator, BlockLinearOperator, null_log
+#from pykrylov.lls import LSQRFramework, LSMRFramework
+#from pykrylov.linop import * #LinearOperator, BlockLinearOperator, null_log
+#import logging #Quiet pykrylov.linop logger
+#null_log.setLevel(logging.WARNING)
+
+#TODO: Replace use of pykrylov with scipy or remove
 
 from pysquid.kernels.magpsf import *
 from pysquid.util.helpers import makeD2_operators, makeD_operators
 from pysquid.component import ModelComponent
 from pysquid.util.linearOperator import MyLinearOperator
-
-import logging #Quiet pykrylov.linop logger
-null_log.setLevel(logging.WARNING)
 
 
 class LinearModel(ModelComponent):
@@ -223,9 +224,9 @@ class LinearModelTV_ADMM(LinearModel):
             updated g : (N_pad)-shaped
         """
         self._oldg = self._oldg if self._oldg is not None else np.zeros(self.N_pad)
-        oldAg = self.A.dot(self._oldg)
+        self._oldAg = self.A.dot(self._oldg)
         self._c = (self._Mtphi - self.D.T.dot(lamb - self.rho * z) 
-                               - self.rho * D2g_ext) - oldAg 
+                               - self.rho * D2g_ext) - self._oldAg 
         maxiter = kwargs.get('maxiter', 200)
         tol = kwargs.get('tol', 1E-6)
         self._gminsol = spl.minres(self.A, self._c, maxiter = maxiter, tol = tol)
@@ -291,7 +292,7 @@ class LinearModelTV_ADMM(LinearModel):
         g1 = g0.copy()
         z0 = self.D.dot(g0 + g_ext)
         lamb0 = self._initialize_lambda(g1, self._Mtphi)
-        alpha0, alpha1, ck0, ck1 = 1., 1., 1., 1.
+        alpha0, alpha1, ck0, ck1 = 1., 1., np.inf, 1.
         #Make copies for fast ADMM
         z1_hat, z1 = z0.copy(), z0.copy()
         lamb_hat, lamb1 = lamb0.copy(), lamb0.copy()
@@ -301,7 +302,7 @@ class LinearModelTV_ADMM(LinearModel):
         if iprint:
             print("Initial NLL = {}".format(self.computeNLL(flux, g0, g_ext)))
 
-        for i in xrange(itnlim):
+        for i in range(itnlim):
             g1[:] = self._update_g(z1_hat, lamb_hat, D2g_ext, **kwargs)
             Dg = self.D.dot(g1)
             z1[:] = self._update_z(z1_hat, lamb_hat, Dg + Dg_ext, zsteps)
@@ -394,16 +395,16 @@ class LinearModelOrthProj(LinearModel):
                                       self.x_ord, self.y_ord)
         M = lambda g: self.kernel.applyM(g).real.ravel()/self.sigma
         Mt = lambda phi: self.kernel.applyMt(phi).real.ravel()/self.sigma
-        self.M = LinearOperator(nargin = self.N_pad,
-                                nargout = self.N_pad,
-                                matvec = M,
-                                matvec_transp = Mt)
-        self.muGamma = LinearOperator(nargin = self.N_pad,
-                                      nargout = self.N_pad,
-                                      matvec = self.Gammadot,
-                                      symmetric = True)
+        #self.M = LinearOperator(nargin = self.N_pad,
+        #                        nargout = self.N_pad,
+        #                        matvec = M,
+        #                        matvec_transp = Mt)
+        #self.muGamma = LinearOperator(nargin = self.N_pad,
+        #                              nargout = self.N_pad,
+        #                              matvec = self.Gammadot,
+        #                              symmetric = True)
         self.A = BlockLinearOperator([[self.M], [self.muGamma]])
-        self.lsqr = LSMRFramework(self.A)
+        #self.lsqr = LSMRFramework(self.A)
         self._unPickleable = ['M', 'muGamma', 'A', 'lsqr']
 
     def computeResiduals(self, flux, gfield, ext_g = None):

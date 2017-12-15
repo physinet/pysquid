@@ -17,7 +17,7 @@ import numexpr as nu
 from numpy.fft import fftshift
 from copy import copy
 from pysquid.component import ModelComponent
-from pysquid.util.FFTW import WrapFFTW
+from pysquid.util.fftw import WrapFFTW
 from pysquid.util.helpers import _mult
 
 
@@ -197,11 +197,14 @@ class Kernel(ModelComponent):
 
 
 class BareKernel(Kernel):
-    def __init__(self, shape, params = [1.], padding = None, **kwargs):
+    def __init__(self, shape, psf_params = [1.], padding = None, **kwargs):
         """
         A kernel with no point spread function for computing magnetic fields
         """
-        super(BareKernel, self).__init__(shape, params, padding, **kwargs)
+        self.psf_params = psf_params
+        super(BareKernel, self).__init__(shape, psf_params, padding, **kwargs)
+        self._updatePSF()
+        self._updateMPSF()
 
     def _updateMPSF(self): #Just Biot-Savart kernel
         self.MPSF = self.M_g
@@ -254,5 +257,3 @@ def _gGreensFunction(x0, y0, x, y, z, ax, ay):
     dBdz = (dAdz( ax2 - xc, ay2 - yc) - dAdz( ax2 - xc, -ay2 - yc) - 
             dAdz(-ax2 - xc, ay2 - yc) + dAdz(-ax2 - xc, -ay2 - yc))/(4*np.pi)
     return Bz, dBdz
-
-
