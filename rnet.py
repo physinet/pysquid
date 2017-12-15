@@ -15,6 +15,7 @@ from __future__ import print_function
 from pysquid.kernels.kernel import BareKernel
 from pysquid.kernels.psf import GaussianBlurKernel
 from pysquid.component import ModelComponent
+from pysquid.util.helpers import curl
 
 import sys
 import numpy as np
@@ -264,7 +265,8 @@ class ResistorNetworkModel(ModelComponent):
             self.N_singular_evals += 1
             return True
         self.gfield_noblur = self.gfield.copy()
-        self.gfield[:, :] = self.blurkernel.applyM(self.gfield).real
+        # NOTE: I turned off the blur because I'm not sure it makes sense
+        #self.gfield[:, :] = self.blurkernel.applyM(self.gfield).real
         return False
 
     @property
