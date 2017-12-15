@@ -1,4 +1,20 @@
+“””
+adam.py
+
+author: Colin Clement
+date: 2015-02-12
+
+ADAM stochastic gradient descent optimizer.
+
+usage:
+
+opt = Adam(obj_grad_obj) 
+sol = opt.optimize(np.random.randn(N))
+
+“””
+
 import numpy as np
+
 
 class Adam(object):
     def __init__(self, obj_grad_obj, D, lr=0.001, 
@@ -7,6 +23,7 @@ class Adam(object):
         ADAM stochastic gradient descent optimizer.
         input:
             obj_grad_obj: Function which takes D (int) parameters
+		and returns tuple (objective function value, its gradient)
             and returns (objective, grad_objective), can take other args
             D: int number of parameters
             lr: learning rate or step size
