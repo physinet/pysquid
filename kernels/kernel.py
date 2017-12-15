@@ -257,5 +257,3 @@ def _gGreensFunction(x0, y0, x, y, z, ax, ay):
     dBdz = (dAdz( ax2 - xc, ay2 - yc) - dAdz( ax2 - xc, -ay2 - yc) - 
             dAdz(-ax2 - xc, ay2 - yc) + dAdz(-ax2 - xc, -ay2 - yc))/(4*np.pi)
     return Bz, dBdz
-
-
