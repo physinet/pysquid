@@ -24,8 +24,8 @@ class LM(object):
                         1: 'Maximum number of iterations reached',
                         2: 'Convergence criterion satisfied'}
 
-    def leastsq(self, p0, maxiter = 20, delta = 1E-3, accept = 10., 
-                reject = 4., iprint = 1, **kwargs):
+    def leastsq(self, p0, maxiter = 20, delta = 1E-3, accept = 5, 
+                reject = 3., iprint = 1, **kwargs):
         """
         A custom implementation of the Levenburg Marquardt least-squares 
         optimization algorithm.
@@ -98,7 +98,7 @@ class LM(object):
                           lamb = {}".format(success, nlnprob1, lamb))
 
             #Convergence condition    
-            if nlnprob0 - nlnprob1 < delta:
+            if (nlnprob0 - nlnprob1)/nlnprob0 < delta:
                 if iprint:
                     print("log-prob changed by less than delta = {},\
                           optimum found".format(delta))
