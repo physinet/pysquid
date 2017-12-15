@@ -75,7 +75,10 @@ class ResistorNetworkModel(ModelComponent):
 
         self.electrodes = kwargs.get('electrodes', np.array([0, self.Lx]))
 
-        self._constructSparseMatricesAndCholesky()
+        row, col, data = self._constructMeshMatrices()
+        sparsemat = self._appliedVoltageGeometry(self.G, row, col, data)
+        
+        self._constructSparseMatricesAndCholesky(sparsemat)
         self.solveRnet()
         self.updateParams('J_ext', [1.])
 
@@ -182,7 +185,8 @@ class ResistorNetworkModel(ModelComponent):
                         end = upper_left + 1 + Lx + 1
                         self.G.add_edge(start, end, label=lab)
         self.N_currents = len(self.G.edges())  # depends on mask
-        return self._appliedVoltageGeometry(self.G, row, col, data)
+        return row, col, data
+        #return self._appliedVoltageGeometry(self.G, row, col, data)
 
     def _appliedVoltageGeometry(self, nxGraph, row, col, data):
         """
@@ -241,10 +245,10 @@ class ResistorNetworkModel(ModelComponent):
     #   Sparse Matrices/Cholesky
     # ==============================
 
-    def _constructSparseMatricesAndCholesky(self):
+    def _constructSparseMatricesAndCholesky(self, sprmat):
         N_loops = self.N_loops
-        spRmatrix = self._constructMeshMatrices()
-        self.meshRMatrix = sp.sparse.coo_matrix(spRmatrix,
+        #sprmat = self._constructMeshMatrices()
+        self.meshRMatrix = sp.sparse.coo_matrix(sprmat,
                                                 (N_loops, N_loops)).tocsc()
 
     # ==============================
