@@ -15,13 +15,11 @@ from __future__ import print_function
 from pysquid.kernels.kernel import BareKernel
 from pysquid.kernels.psf import GaussianBlurKernel
 from pysquid.component import ModelComponent
+from pysquid.util.graph import Graph
 
-import sys
 import numpy as np
-import scipy as sp
-import networkx as nx
-from scipy.interpolate import griddata, NearestNDInterpolator
 from scipy.sparse.linalg import spsolve
+from scipy.sparse import coo_matrix
 from collections import defaultdict
 
 
@@ -48,8 +46,6 @@ class ResistorNetworkModel(ModelComponent):
         kwargs:
         resistors : array_like of shape ((Lx+1)*(Ly+1)) 
             resistances of mesh surrounding mask pixels
-        blur : array_like of shape (2)
-            sigma_x, sigma_y of blur kernel to smooth distribution
         deltaV :    (float) is the applied voltage
                     (to the top and bottom unless otherwise specified)
         electrodes : list of two integers [cathode, anode]. Default is
@@ -57,7 +53,6 @@ class ResistorNetworkModel(ModelComponent):
                      Specify in original mask units.
         """
         self.mask = mask
-        self.flatmask = self.mask.flatten()
         super(ResistorNetworkModel, self).__init__(mask.shape, **kwargs)
 
         self.deltaV = kwargs.get('deltaV', 1.)
@@ -69,16 +64,12 @@ class ResistorNetworkModel(ModelComponent):
         self.gshape = gshape if gshape is not None else (Ly, Lx)
         self.padding = padding if padding is not None else [0, 0]
         self.resistors = kwargs.get('resistors', np.ones(self.N_hor+self.N_ver))
-        self._blur = kwargs.get('blur', [2., 2.])
-        self.blurkernel = GaussianBlurKernel(self._shape, self._blur,
-                                             dx=1., dy=1.)
 
         self.electrodes = kwargs.get('electrodes', np.array([0, self.Lx]))
 
-        row, col, data = self._constructMeshMatrices()
-        sparsemat = self._appliedVoltageGeometry(self.G, row, col, data)
-        
-        self._constructSparseMatricesAndCholesky(sparsemat)
+        row, col, data, G = self._constructMeshMatrices()
+        sparsemat = self._appliedVoltageGeometry(row, col, data, G)
+        self._constructSparseMatrix(sparsemat)
         self.solveRnet()
         self.updateParams('J_ext', [1.])
 
@@ -91,28 +82,14 @@ class ResistorNetworkModel(ModelComponent):
     # ==============================
 
     def _setupGridsNumbers(self):
+        #  Re-evaluate whether we need this complex interpolation stuff in here
         Ly, Lx = self.Ly, self.Lx
         self.N_nodes = (Lx+1)*(Ly+1)
         self.N_hor = self.N + Lx
         self.N_ver = self.N + Ly
-        self.evaluations = 0
-        self.N_singular_evals = 0
         self._globalLoopField = np.zeros((Ly, Lx))
 
-        maskx = np.arange(1/2.,  Lx,  1)
-        masky = np.arange(-1/2., -Ly, -1)
-        self.maskx_g, self.masky_g = np.meshgrid(maskx, masky)
-        points = np.c_[self.maskx_g.ravel(), self.masky_g.ravel()]
-        x = np.arange(0.5,  Lx)
-        y = np.arange(-0.5, -Ly, -1)
-        self.x_g, self.y_g = np.meshgrid(x, y)
-
-        self.maskInterpolator = NearestNDInterpolator(points,
-                                                      self.mask.ravel())
-        self.gmask = self.maskInterpolator(np.c_[self.x_g.ravel(),
-                                                 self.y_g.ravel()])
-        self._unPickleable = ['maskInterpolator']
-        self.gmaskflat = self.gmask.ravel()
+        self.maskflat = self.mask.flatten()
 
         # Only make if don't exist
         try:
@@ -123,11 +100,15 @@ class ResistorNetworkModel(ModelComponent):
             self.gfieldpadded = np.zeros((2*Ly, 2*Lx))
 
         # Mesh coordinates
-        self.meshIndex = (np.cumsum(self.gmask.ravel())-1).astype('int')
+        self.meshIndex = (np.cumsum(self.maskflat)-1).astype('int')
         self.N_meshes = max(self.meshIndex)+1
         self.N_loops = self.N_meshes + 1
         self.voltageConst = np.zeros(self.N_loops)
         self.voltageConst[-1] = self.deltaV
+
+    def meshEdgeIndices(self, i):
+        return [i + i//self.Lx + self.N_hor, i + self.Lx, 
+                i + i//self.Lx + self.N_hor+1, i]  # CCW
 
     def _constructMeshMatrices(self):
         """
@@ -142,20 +123,22 @@ class ResistorNetworkModel(ModelComponent):
         Lx, Ly, N_hor = self.Lx, self.Ly, self.N_hor
         self.meshEdges = defaultdict(list)   # {'mesh': [list of edges]}
         self.edgeMeshes = defaultdict(list)  # {'edge': [list of meshes]}
-        self.G = nx.Graph()
+        G = Graph((Lx+1) * (Ly+1))
 
-        for i in np.arange(self.N)[self.gmask > 0]:
+        for i in np.arange(self.N)[self.maskflat > 0]:
             mesh = self.meshIndex[i]  # meshes don't cound empty spots
             mesh_coord = np.array([i % Lx, i//Lx])  # x, y coordinates
-            mesh_edges = [i+i//Lx+N_hor, i+Lx, i+i//Lx+N_hor+1, i]  # CCW
+            #mesh_edges = [i+i//Lx+N_hor, i+Lx, i+i//Lx+N_hor+1, i]  # CCW
+            mesh_edges = self.meshEdgeIndices(i)
+
             self.meshEdges[mesh] = mesh_edges
             row += [mesh]
             col += [mesh]
             data += [self.resistors[mesh_edges].sum()]
 
             upper_left = i+i//Lx
-            self.G.add_edge(upper_left, upper_left+1, label=i)
-            self.G.add_edge(upper_left, upper_left+Lx+1, label=i+N_hor+i//Lx)
+            G.insert(upper_left, upper_left+1, i)  # w = resistor label
+            G.insert(upper_left, upper_left + Lx + 1, i + N_hor + i//Lx)
 
             for edge, n in zip(mesh_edges, neigh):
                 self.edgeMeshes[edge] += [mesh]
@@ -164,11 +147,11 @@ class ResistorNetworkModel(ModelComponent):
                 if 0 <= neigh_x < Lx and 0 <= neigh_y < Ly:
                     inside = True
                     mesh_neigh_no = self.meshIndex[neigh_mesh]
-                    neigh_mask = self.gmaskflat[neigh_mesh]
+                    neigh_mask = self.maskflat[neigh_mesh]
                     if neigh_mask:
                         row += [mesh]
                         col += [mesh_neigh_no]
-                        data += [-self.resistors[edge]]  # one resistor, counter rotating
+                        data += [-1 * self.resistors[edge]]  # counter rotating
                 else:
                     inside = False
                     neigh_mask = 0
@@ -178,17 +161,16 @@ class ResistorNetworkModel(ModelComponent):
                         start = upper_left + 1
                         lab = i+N_hor+1+i//Lx
                         end = upper_left + 1 + Lx + 1
-                        self.G.add_edge(start, end, label=lab)
+                        G.insert(start, end, lab)
                     elif np.all(n == [0, 1]):
                         start = upper_left + Lx + 1
                         lab = i+Lx
                         end = upper_left + 1 + Lx + 1
-                        self.G.add_edge(start, end, label=lab)
-        self.N_currents = len(self.G.edges())  # depends on mask
-        return row, col, data
-        #return self._appliedVoltageGeometry(self.G, row, col, data)
+                        G.insert(start, end, lab)
+        self.N_currents = G.ne
+        return row, col, data, G
 
-    def _appliedVoltageGeometry(self, nxGraph, row, col, data):
+    def _appliedVoltageGeometry(self, row, col, data, G):
         """
         Given nxGraph, row, col, and data from self._constructMeshMatrices,
         adds to row, col, and data a global voltage loop between the cathode
@@ -196,18 +178,23 @@ class ResistorNetworkModel(ModelComponent):
         shortest path between them, returns (data, (row, col)) in the format
         that scipy.sparse.coo_matrix uses.
         """
-        G = nxGraph
         cathode, anode = self.electrodes
-        try:
-            nPath = nx.astar_path(G, cathode, anode)
-        except nx.NetworkXNoPath as patherr:
-            print("Cathode/anode choice are not connected by a path")
-            raise patherr
-        self._global_edge_path = np.array([G.edge[nPath[n]][nPath[n+1]]['label']
-                                      for n in range(len(nPath)-1)])
+        # Find shortest path between cathode and anode
+        path = G.findpath(cathode, anode, G.bfs(cathode))
+        # Reconstruct edge path
+        self._global_edge_path = []
+        for x, y in zip(path[:-1], path[1:]):
+            v = G.edges[x]
+            while v:
+                if v.y == y:
+                    self._global_edge_path.append(v.w)
+                    break
+                v = v.nextedge
+        self._global_edge_path = np.array(self._global_edge_path)
+
         self.meshEdges[self.N_loops-1] = self._global_edge_path
         orientation = [1, 1, -1, -1]  # leftdownrightup order as above
-        for edge, n1, n2 in zip(self._global_edge_path, nPath[:-1], nPath[1:]):
+        for edge, n1, n2 in zip(self._global_edge_path, path[:-1], path[1:]):
             for m in self.edgeMeshes[edge]:
                 orient_edge = orientation[self.meshEdges[m].index(edge)]
                 orient_edge = (2*(n1 < n2)-1)*orient_edge
@@ -241,15 +228,9 @@ class ResistorNetworkModel(ModelComponent):
         self._globalLoopPatch = 1 * (hfill * vfill)
         return (data, (row, col))
 
-    # ==============================
-    #   Sparse Matrices/Cholesky
-    # ==============================
-
-    def _constructSparseMatricesAndCholesky(self, sprmat):
-        N_loops = self.N_loops
-        #sprmat = self._constructMeshMatrices()
-        self.meshRMatrix = sp.sparse.coo_matrix(sprmat,
-                                                (N_loops, N_loops)).tocsc()
+    def _constructSparseMatrix(self, sprmat):
+        N = self.N_loops
+        self.meshRMatrix = coo_matrix(sprmat, (N, N)).tocsc()
 
     # ==============================
     #   Calculate currents and fields
@@ -257,14 +238,9 @@ class ResistorNetworkModel(ModelComponent):
 
     def solveRnet(self):
         self.meshCurrents = spsolve(self.meshRMatrix, self.voltageConst)
-        self.gfieldflat[self.gmaskflat == 1] = self.meshCurrents[:-1].copy()
+        self.gfieldflat[self.maskflat == 1] = self.meshCurrents[:-1].copy()
         self.gfield = self.gfieldflat.reshape(self.Ly, self.Lx)
         self.gfield += self.meshCurrents[-1] * self._globalLoopPatch
-        if np.any(np.isnan(self.meshCurrents)):
-            self.N_singular_evals += 1
-            return True
-        self.gfield_noblur = self.gfield.copy()
-        self.gfield[:, :] = self.blurkernel.applyM(self.gfield).real
         return False
 
     @property
