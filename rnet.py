@@ -16,6 +16,7 @@ from pysquid.kernels.kernel import BareKernel
 from pysquid.kernels.psf import GaussianBlurKernel
 from pysquid.component import ModelComponent
 from pysquid.util.graph import Graph
+from pysquid.util.helpers import curl
 
 import numpy as np
 from scipy.sparse.linalg import spsolve
