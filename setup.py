@@ -14,7 +14,7 @@ setup(name='pysquid',
       author_email='colin.clement@gmail.com',
       license='GPLv3',
       packages=find_packages(exclude=['test*']),
-      install_requires=['pyfftw'],
+      install_requires=['pyfftw', 'scipy', 'numpy'],
       python_requires='>=2.7, <4',
       classifiers=[
           'Development Status :: 3 - Alpha',
