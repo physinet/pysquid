@@ -1,1 +1,2 @@
-# pysquid -- Python Tools for Analytizing SQUID Magnetometry Images
+# pysquid -- Python tools for analytizing SQUID magnetometry images
+=======
