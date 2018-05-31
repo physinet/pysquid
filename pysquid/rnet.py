@@ -69,7 +69,8 @@ class ResistorNetworkModel(ModelComponent):
         self.electrodes = kwargs.get('electrodes', np.array([0, self.Lx]))
 
         row, col, data, G = self._constructMeshMatrices()
-        sparsemat = self._appliedVoltageGeometry(row, col, data, G)
+        sparsemat = self._appliedVoltageGeometry(row, col, data, G,
+                                                 *self.electrodes)
         self._constructSparseMatrix(sparsemat)
         self.solveRnet()
         self.updateParams('J_ext', [1.])
@@ -108,8 +109,14 @@ class ResistorNetworkModel(ModelComponent):
         self.voltageConst[-1] = self.deltaV
 
     def meshEdgeIndices(self, i):
+        # left, bottom, right, top
         return [i + i//self.Lx + self.N_hor, i + self.Lx, 
                 i + i//self.Lx + self.N_hor+1, i]  # CCW
+
+    def meshIndexCornerIndices(self, i):
+        ul = i + i // self.Lx
+        # upper-left, lower-left, lower-right, upper-right
+        return [ul, ul + self.Lx + 1, ul + self.Lx + 2, ul + 1]
 
     def _constructMeshMatrices(self):
         """
@@ -129,7 +136,6 @@ class ResistorNetworkModel(ModelComponent):
         for i in np.arange(self.N)[self.maskflat > 0]:
             mesh = self.meshIndex[i]  # meshes don't cound empty spots
             mesh_coord = np.array([i % Lx, i//Lx])  # x, y coordinates
-            #mesh_edges = [i+i//Lx+N_hor, i+Lx, i+i//Lx+N_hor+1, i]  # CCW
             mesh_edges = self.meshEdgeIndices(i)
 
             self.meshEdges[mesh] = mesh_edges
@@ -137,9 +143,9 @@ class ResistorNetworkModel(ModelComponent):
             col += [mesh]
             data += [self.resistors[mesh_edges].sum()]
 
-            upper_left = i+i//Lx
-            G.insert(upper_left, upper_left+1, i)  # w = resistor label
-            G.insert(upper_left, upper_left + Lx + 1, i + N_hor + i//Lx)
+            ul, ll, lr, ur = self.meshIndexCornerIndices(i)
+            G.insert(ul, ur, i)  # w = resistor label
+            G.insert(ul, ll, i + N_hor + i//Lx)
 
             for edge, n in zip(mesh_edges, neigh):
                 self.edgeMeshes[edge] += [mesh]
@@ -159,19 +165,13 @@ class ResistorNetworkModel(ModelComponent):
 
                 if not inside or not neigh_mask:
                     if np.all(n == [1, 0]):
-                        start = upper_left + 1
-                        lab = i+N_hor+1+i//Lx
-                        end = upper_left + 1 + Lx + 1
-                        G.insert(start, end, lab)
+                        G.insert(ur, lr, ul + 1 + Lx + 1)
                     elif np.all(n == [0, 1]):
-                        start = upper_left + Lx + 1
-                        lab = i+Lx
-                        end = upper_left + 1 + Lx + 1
-                        G.insert(start, end, lab)
+                        G.insert(ll, lr, i + Lx)
         self.N_currents = G.ne
         return row, col, data, G
 
-    def _appliedVoltageGeometry(self, row, col, data, G):
+    def _appliedVoltageGeometry(self, row, col, data, G, cathode, anode):
         """
         Given nxGraph, row, col, and data from self._constructMeshMatrices,
         adds to row, col, and data a global voltage loop between the cathode
@@ -179,9 +179,9 @@ class ResistorNetworkModel(ModelComponent):
         shortest path between them, returns (data, (row, col)) in the format
         that scipy.sparse.coo_matrix uses.
         """
-        cathode, anode = self.electrodes
         # Find shortest path between cathode and anode
         path = G.findpath(cathode, anode, G.bfs(cathode))
+
         # Reconstruct edge path
         self._global_edge_path = []
         for x, y in zip(path[:-1], path[1:]):
@@ -214,20 +214,23 @@ class ResistorNetworkModel(ModelComponent):
         col += [self.N_loops-1]
         data += [self.resistors[self._global_edge_path].sum()]
 
-        # Find squares inside global loop
-        closedpath = np.r_[self._global_edge_path, np.arange(*self.electrodes)]
-        hpaths = np.zeros((self.Ly+1, self.Lx))
-        vpaths = np.zeros((self.Ly, self.Lx+1))
-        h_indices = closedpath[closedpath < self.N_hor]
-        v_indices = closedpath[closedpath > self.N_hor] - self.N_hor
-        for hh in h_indices:
-            hpaths[hh//self.Lx, hh % self.Lx] = 1.
-        for vv in v_indices:
-            vpaths[vv//(self.Lx+1), vv % (self.Lx+1)] = 1.
-        hfill = np.cumsum(hpaths, axis=0)[:-1] == 1
-        vfill = np.cumsum(vpaths, axis=1)[:,:-1] == 1
-        self._globalLoopPatch = 1 * (hfill * vfill)
+        self._globalLoopPatch = self._appliedLoopGPatch(self._global_edge_path)
         return (data, (row, col))
+
+    def _appliedLoopGPatch(self, edge_path):
+        """ 
+        Convention: right-hand-rule, CCW currents are positive so that B-field
+        is positive out of the page
+        """
+        hor = np.zeros((self.Ly + 1, self.Lx))
+        ver = np.zeros((self.Ly, self.Lx + 1))
+        for e in edge_path:
+            if e < self.N_hor:  # horizontal currents
+                hor[e//self.Lx, e % self.Lx] = 1.
+            else:  # vertical currents
+                ver[(e - self.N_hor)//(self.Lx + 1), 
+                    (e - self.N_hor) % (self.Lx + 1)] = 1.
+        return np.cumsum(hor, 1)[:-1] * np.cumsum(ver, 0)[:,:-1]
 
     def _constructSparseMatrix(self, sprmat):
         N = self.N_loops
