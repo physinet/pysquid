@@ -257,3 +257,40 @@ def _gGreensFunction(x0, y0, x, y, z, ax, ay):
     dBdz = (dAdz( ax2 - xc, ay2 - yc) - dAdz( ax2 - xc, -ay2 - yc) - 
             dAdz(-ax2 - xc, ay2 - yc) + dAdz(-ax2 - xc, -ay2 - yc))/(4*np.pi)
     return Bz, dBdz
+
+def _lineindefintegral(l, x, y, z):
+    b, r = x*x + z*z, l - y
+    return x*r/(b*np.sqrt(b+r*r))/(4*np.pi)
+
+def _bzlinecurrent(x, y, x0, y0, z, l, ydir=True):
+    """
+    Computes the z-component of the magnetic field due to a line of unit current
+    of length l, centered at (x0, y0). If ydir is True, the current points in
+    the y-direction. otherwise ir points in the x-direction. Sampled at points
+    x, y
+    """
+    if ydir:
+        return (_lineindefintegral(l/2., x-x0, y-y0, z) - 
+                _lineindefintegral(-l/2., x-x0, y-y0, z))
+    else:
+        return (_lineindefintegral(l/2., y-y0, x-x0, z) - 
+                _lineindefintegral(-l/2., y-y0, x-x0, z))
+
+def _bzfield_edges(gfield, height, rxy=1.):
+    Ly, Lx = gfield.shape
+    x = np.fft.fftshift(rxy*np.arange(-Lx, Lx)[None,:])
+    y = np.fft.fftshift(np.arange(-Ly, Ly)[:,None])
+    top = _bzlinecurrent(x, y, 0., -0.5, height, 1., False)
+    bottom = - _bzlinecurrent(x, y, 0., 0.5, height, 1., False)
+    left = _bzlinecurrent(x, y, -rxy/2., 0., height, rxy)
+    right = - _bzlinecurrent(x, y, rxy/2., 0., height, rxy)
+
+    edge = np.zeros((2*Ly, 2*Lx))
+    kernels = [top, bottom, left, right]
+    slices = [np.s_[0,:Lx], np.s_[Ly-1,:Lx], np.s_[:Ly,0], np.s_[:Ly,Lx-1]]
+    edgefield_k = np.zeros((2*Ly, Lx+1), dtype='complex128')
+    for k, sl in zip(kernels, slices):
+        edges[sl] = gfield[sl].copy()
+        edgefield_k += np.fft.rfftn(edge)*np.fft.rfftn(k)
+        edge[sl] = 0.
+    return np.fft.irfftn(edgefield_k)[:Ly, :Lx]
