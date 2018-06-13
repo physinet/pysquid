@@ -3,79 +3,81 @@ kernel.py
 
     author: Colin Clement
     email: colin.clement@gmail.com
-    date: 2015-9-10
+    date: 2018-06-13
 
 This is a class for managing the construction of the M matrix for computing
-magnetic flux due to g-fields
+magnetic flux due to g-fields. It includes the ability to subtract the fields
+due to the edges of the currents. This 
 
 """
 
 
 from __future__ import division, print_function
-import numpy as np
-import numexpr as nu
-from numpy.fft import fftshift
 from copy import copy
+import numexpr as nu
+import numpy as np
+
 from pysquid.component import ModelComponent
-from pysquid.util.fftw import WrapFFTW
-from pysquid.util.helpers import _mult
+from pysquid.util.fftw import FFT
 
 
 class Kernel(ModelComponent):
     
-    def __init__(self, shape, params = None, padding = None,
+    def __init__(self, shape, params=None, padding=None, edges=True, 
                  **kwargs):
         """
         Kernel class instance stores point spread functions and the flux of
         point (square) sources of constant g-field. 
 
         input:
-            shape : tuple of ints (ly, lx),  shape of measured flux field
-            params : list of parameters for point spread function. 
+            shape: tuple of ints (ly, lx),  shape of measured flux field
+            params: list of parameters for point spread function. 
                      First element is always height above plane.
                      Length is dependent on subclass implementations
-            padding : tuple of ints (py, px) for padding on g-field outside
+            padding: tuple of ints (py, px) for padding on g-field outside
                       flux image
+            edges: True/False. False causes the kernel to subtracts fields due
+                to image edge currents.
 
         kwargs:
-            dx and dy: floats for units of x and y. Choose either dx or dy
+            rxydx and dy: floats for units of x and y. Choose either dx or dy
             to be 1, and then the other should be the appropriate ratio.
             NOTE: You should choose the smaller of x and y units to be 1,
             so that the larger is a number greater than 1, which will promote
             numerical stability in the linear solvers.
             
-            _fftw_flags and _fftw_threads (see FFTW object)
+            fftw_plan and threads (see FFT object)
 
             cutoff: Default is true, will cutoff PSF.
         """
         super(Kernel, self).__init__(shape, padding, **kwargs)
+        self.edges = edges
 
-        self.PSF = np.zeros(self._fftshape)
-        self.PSF[0,0] = 1.
+        self._fftw_plan = kwargs.get('fftw_plan', 'FFTW_MEASURE')
+        self._fftw_threads = kwargs.get('threads', 4)
+
+        self._updategrids()
+
+        self.fft = FFT(self._fftshape, plan=self._fftw_plan,
+                        threads=self._fftw_threads)
+        self._unPickleable += ['fft']
+
+        self._doubleg = np.zeros(self._fftshape)
+        self._doublefluxpad = np.zeros(self._fftshape)
         
-        self._fftw_flags = kwargs.get('_fftw_flags', ['FFTW_MEASURE'])
-        self._fftw_threads = kwargs.get('_fftw_threads', 8)
-
-        self._updateGrids()
-
-        self.fftw = WrapFFTW(self._fftshape, flags = self._fftw_flags,
-                             threads = self._fftw_threads)
-        self._unPickleable += ['fftw']
-
-        # Workspace arrays
-        self._padExpandG = np.zeros(self._fftshape)
-        self._padFlux = np.zeros_like(self._padExpandG)
-        self._conv_k = np.zeros(self._fftshape, dtype='complex128')
-        self._dMPSF_dz_k = np.zeros_like(self._conv_k)
-        self._Mtoutput = np.zeros((self.Ly_pad, self.Lx_pad))
-        self.dMPSF_dz_dotg = np.zeros((self.Ly, self.Lx, len(self.psf_params)))
-
-        self._updateM()
+        self.updateParams('psf_params', kwargs.get('params', [1.]))
 
     def __setstate__(self, d):
         self.__dict__ = d
-        self.fftw = WrapFFTW(self._fftshape, flags = self._fftw_flags,
-                             threads = self._fftw_threads)
+        self.fft = FFT(self._fftshape, plan=self._fftw_plan,
+                       threads=self._fftw_threads)
+
+    def _updategrids(self):
+        self.x = self.rxy * np.arange( 0.5,  2*self.Lx_pad,  1.)
+        self.y = np.arange(-0.5, -2*self.Ly_pad, -1.)
+        self.xg, self.yg = np.meshgrid(self.x, self.y)
+        self.d_xg = np.fft.fftshift(self.xg - (self.rxy*2*self.Lx_pad)/2)
+        self.d_yg = np.fft.fftshift(self.yg + (2*self.Ly_pad)/2)
 
     def updateParams(self, name, values):
         """
@@ -84,53 +86,54 @@ class Kernel(ModelComponent):
         """
         if name == 'psf_params':
             self.psf_params = copy(values)
-            self._updateM()
-            self._updatePSF()
-            self._updateMPSF()
+            self._updatem()
+            self._updatepsf()
+            if not self.edges:
+                self._updateE()
 
-    def _updateGrids(self):
-        self.x = self.dx * np.arange( 0.5,  2*self.Lx_pad,  1.)
-        self.y = self.dy * np.arange(-0.5, -2*self.Ly_pad, -1.)
-        self.xg, self.yg = np.meshgrid(self.x, self.y)
-        self.d_xg = fftshift(self.xg - (self.dx*2*self.Lx_pad)/2)
-        self.d_yg = fftshift(self.yg + (self.dy*2*self.Ly_pad)/2)
+    def _updatem(self):
+        self.mg, self.dmg_dz = _gGreensFunction(
+            self.rxy/2., -1/2., self.d_xg, self.d_yg, self.psf_params[0],
+            self.rxy, 1.
+        )
+        self.mg_k = self.fft.fft2(self.mg)
 
-    def _updateM(self):
-        self.M_g, self.dM_g_dz = _gGreensFunction(self.dx/2., -self.dy/2., 
-                                                  self.d_xg, self.d_yg,
-                                                  self.psf_params[0], 
-                                                  self.dx, self.dy)
+    def _updateE(self):
+        height, rxy = self.psf_params[0], self.rxy
+        Ly, Lx = self.Ly_pad, self.Lx_pad
+        x = np.fft.fftshift(rxy*np.arange(-Lx, Lx)[None,:])
+        y = np.fft.fftshift(np.arange(-Ly, Ly)[:,None])
+        self.edgefields = [
+             _bzlinecurrent(x, y, 0., -0.5, height, 1., False),
+            -_bzlinecurrent(x, y, 0., 0.5, height, 1., False),
+             _bzlinecurrent(x, y, -rxy/2., 0., height, rxy),
+            -_bzlinecurrent(x, y, rxy/2., 0., height, rxy),
+        ]
+        self.edgefields_k = [self.fft.fft2(b) for b in self.edgefields]
 
-    def _updatePSF(self):
+    def _updatepsf(self):
         """
-        Should put psf in self.PSF, its forier transform in
-        self.PSF_k, dpsf_dz in self.d_PSF
-        and the fourier transform of dpsf_dz in d_PSF_k
-        where z are the psf_params
-        self.d_PSF should be shape (ly, lx, N_params)
-        where N_params is the number of PSF parameters
+        """
+        self.psf = np.zeros(self._fftshape)
+        self.psf[0,0] = 1.
+        self.psf_k = self.fft.fft2(self.psf)
 
-        """
-        pass
+    def edgeslice(self, pad=True):
+        """ top bottom left right """
+        if pad:
+            Ly, Lx = self.Ly_pad, self.Lx_pad
+        else:
+            Ly, Lx = self.Ly, self.Lx
+        return [(0, slice(None, Lx, None)), (Ly-1, slice(None, Lx, None)),
+                (slice(None, Ly, None), 0), (slice(None, Ly, None), Lx-1)]
 
-    def _updateMPSF(self):
-        self.M_g_k = self.fftw.fft(self.M_g)
-        self.MPSF_k = self.M_g_k * self.PSF_k
-        self.MPSF = self.fftw.ifft(self.MPSF_k)
-
-    def convolveWithPSF(self, arr):
-        """
-        Convolve arr with PSF of this kernel instance
-        """
-        _mult(self._conv_k, self.fftw.fft(arr), self.PSF_k)
-        return self.fftw.ifft(self._conv_k)
-
-    def _apply(self, M_k, expanded_arr):
-        """
-        Convolve arr (real space) with M_k (kernel in k-space)
-        """
-        _mult(self._conv_k, self.fftw.fft(expanded_arr), M_k)
-        return self.fftw.ifft(self._conv_k)
+    def edgeproject(self, g, pad=True):
+        output = []
+        for s in self.edgeslice(pad):
+            edge = np.zeros_like(g)
+            edge[s] = g[s]
+            output.append(edge)
+        return output
 
     def applyM(self, arr):
         """
@@ -140,10 +143,17 @@ class Kernel(ModelComponent):
         output:
             M.dot(arr) : (Ly_pad, Lx_pad)-shaped array
         """
-        Ly_pad, Lx_pad = self.Ly_pad, self.Lx_pad
-        self._padExpandG[:Ly_pad, :Lx_pad] = arr.reshape(Ly_pad, Lx_pad)[:,:]
-        return self.crop(self._apply(self.MPSF_k, self._padExpandG)[:Ly_pad,
-                                                                    :Lx_pad])
+        Ly, Lx = self.Ly_pad, self.Lx_pad
+        g = arr.reshape(Ly, Lx)
+        self._doubleg[:Ly,:Lx] = g[:,:]
+        g_k = self.fft.fft2(self._doubleg)
+        out = self.crop(self.fft.ifft2(self.psf_k * self.mg_k * g_k))
+        if not self.edges:
+            for ek, lg in zip(self.edgefields_k, 
+                              self.edgeproject(self._doubleg)):
+                lg_k = self.fft.fft2(lg)
+                out -= self.crop(self.fft.ifft2(self.psf_k * ek * lg_k))
+        return out
 
     def applyMt(self, arr):
         """
@@ -154,61 +164,29 @@ class Kernel(ModelComponent):
             M.T.dot(arr) : (Ly_pad,Lx_pad)-shaped array where, e.g.
         """
         Ly, Lx, py, px = self.Ly, self.Lx, self.py, self.px
-        self._padFlux[py:py+Ly,px:px+Lx] = arr.reshape(Ly, Lx)
-        self._flux_transpose = self._apply(self.MPSF_k, self._padFlux)
-        return self._flux_transpose[:self.Ly_pad, :self.Lx_pad]
-
-    def computeGradients(self, arr):
-        """
-        Compute product of dM_dz.dot(arr) using FFT.
-        input:
-            arr: (g) (Ly, Lx)-shaped or (Ly*Lx)-shaped float array
-        output:
-            dM_dz.dot(arr) : (ly, lx, N)-shaped array where
-                             N is the number of parameters
-        """
-        self._padExpandG[:self.Ly_pad, :self.Lx_pad] = arr[:,:]
-        self._padExpandG_k = self.fftw.fft(self._padExpandG)
-       
-        offset = 0
-        if hasattr(self, 'dM_g_dz'): 
-            _mult(self._dMPSF_dz_k, self.fftw.fft(self.dM_g_dz), self.PSF_k)
-            _mult(self._conv_k, self._dMPSF_dz_k, self._padExpandG_k)
-            self.dMPSF_dz_dotg[:,:,0] = self.crop(self.fftw.ifft(self._conv_k).real)
-            offset = 1
-        
-        for p in range(len(self.psf_params)-offset):
-            if hasattr(self, 'M_g_k'): 
-                _mult(self._dMPSF_dz_k, self.d_PSF_k[:,:,p], self.M_g_k)
-                _mult(self._conv_k, self._dMPSF_dz_k, self._padExpandG_k)
-            else: #Just convolve with PSF
-                _mult(self._conv_k, self.d_PSF_k[:,:,p], self._padExpandG_k)
-
-            self.dMPSF_dz_dotg[:,:,p+offset] = self.crop(self.fftw.ifft(self._conv_k).real)        
-        return self.dMPSF_dz_dotg
+        flux = arr.reshape(Ly, Lx)
+        self._doublefluxpad[py:py+Ly, px:px+Ly] = flux[:,:]
+        flux_k = self.fft.fft2(self._doublefluxpad)
+        out = self.fft.ifft2(self.psf_k * self.mg_k * flux_k)
+        if not self.edges:
+            for ek, sl in zip(self.edgefields_k, self.edgeslice()):
+                out[sl] -= self.fft.ifft2(self.psf_k * ek * flux_k)[sl]
+        return out[:self.Ly_pad, :self.Lx_pad]
 
     @property
-    def M(self):
-        return self.MPSF.real
-
-    @property
-    def M_k(self):
-        return self.MPSF_k
+    def m_k(self):
+        return self.psf_k * self.mg_k
 
 
-class BareKernel(Kernel):
-    def __init__(self, shape, psf_params = [1.], padding = None, **kwargs):
-        """
-        A kernel with no point spread function for computing magnetic fields
-        """
-        self.psf_params = psf_params
-        super(BareKernel, self).__init__(shape, psf_params, padding, **kwargs)
-        self._updatePSF()
-        self._updateMPSF()
-
-    def _updateMPSF(self): #Just Biot-Savart kernel
-        self.MPSF = self.M_g
-        self.MPSF_k = self.fftw.fft(self.M_g)
+BareKernel = Kernel
+#class BareKernel(Kernel):
+#    def __init__(self, shape, psf_params = [1.], padding = None, **kwargs):
+#        """
+#        A kernel with no point spread function for computing magnetic fields
+#        """
+#        self.psf_params = psf_params
+#        super(BareKernel, self).__init__(shape, psf_params, padding, **kwargs)
+#        self._updatePSF()
 
 
 ################ Bz-field functions for unit g-fields ##################
