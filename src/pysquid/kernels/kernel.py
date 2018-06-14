@@ -92,7 +92,7 @@ class Kernel(ModelComponent):
                 self._updateE()
 
     def _updatem(self):
-        self.mg, self.dmg_dz = _gGreensFunction(
+        self.mg = _gGreensFunction(
             self.rxy/2., -1/2., self.d_xg, self.d_yg, self.psf_params[0],
             self.rxy, 1.
         )
@@ -178,35 +178,12 @@ class Kernel(ModelComponent):
         return self.psf_k * self.mg_k
 
 
-BareKernel = Kernel
-#class BareKernel(Kernel):
-#    def __init__(self, shape, psf_params = [1.], padding = None, **kwargs):
-#        """
-#        A kernel with no point spread function for computing magnetic fields
-#        """
-#        self.psf_params = psf_params
-#        super(BareKernel, self).__init__(shape, psf_params, padding, **kwargs)
-#        self._updatePSF()
-
-
-################ Bz-field functions for unit g-fields ##################
-
 def _indefIntegral(x,y,d):
     """
     Indefinite integral of g-field flux for thin sheet of current 
     """
     d2, x2, y2 = d*d, x*x, y*y
     return nu.evaluate('x*y*(2*d2+x2+y2)/((d2+x2)*(d2+y2)*sqrt(d2+x2+y2))')
-
-def _d_indefIntegral(x,y,d):
-    """
-    derivative of Indefinite integral of g-field flux for thin sheet of current 
-    with respect to sample plane height d.
-    """
-    d2, x2, y2 = d*d, x*x, y*y
-    Bz = _indefIntegral(x, y, d)
-    p = nu.evaluate('d*(4./(2*d2+x2+y2)-1./(d2+x2+y2)-2./(d2+y2)-2./(d2+x2))')
-    return Bz * p
 
 def _gGreensFunction(x0, y0, x, y, z, ax, ay):
     """
@@ -228,13 +205,10 @@ def _gGreensFunction(x0, y0, x, y, z, ax, ay):
     """
     ax2, ay2 = ax/2., ay/2. 
     A = lambda x1, y1: _indefIntegral(x1, y1, z)
-    dAdz = lambda x1, y1: _d_indefIntegral(x1, y1, z)
     xc, yc = x - x0, y - y0
     Bz = (A( ax2 - xc, ay2 - yc) - A( ax2 - xc, -ay2 - yc) - 
           A(-ax2 - xc, ay2 - yc) + A(-ax2 - xc, -ay2 - yc))/(4*np.pi)
-    dBdz = (dAdz( ax2 - xc, ay2 - yc) - dAdz( ax2 - xc, -ay2 - yc) - 
-            dAdz(-ax2 - xc, ay2 - yc) + dAdz(-ax2 - xc, -ay2 - yc))/(4*np.pi)
-    return Bz, dBdz
+    return Bz
 
 def _lineindefintegral(l, x, y, z):
     b, r = x*x + z*z, l - y
@@ -253,22 +227,3 @@ def _bzlinecurrent(x, y, x0, y0, z, l, ydir=True):
     else:
         return (_lineindefintegral(l/2., y-y0, x-x0, z) - 
                 _lineindefintegral(-l/2., y-y0, x-x0, z))
-
-def _bzfield_edges(gfield, height, rxy=1.):
-    Ly, Lx = gfield.shape
-    x = np.fft.fftshift(rxy*np.arange(-Lx, Lx)[None,:])
-    y = np.fft.fftshift(np.arange(-Ly, Ly)[:,None])
-    top = _bzlinecurrent(x, y, 0., -0.5, height, 1., False)
-    bottom = - _bzlinecurrent(x, y, 0., 0.5, height, 1., False)
-    left = _bzlinecurrent(x, y, -rxy/2., 0., height, rxy)
-    right = - _bzlinecurrent(x, y, rxy/2., 0., height, rxy)
-
-    edge = np.zeros((2*Ly, 2*Lx))
-    kernels = [top, bottom, left, right]
-    slices = [np.s_[0,:Lx], np.s_[Ly-1,:Lx], np.s_[:Ly,0], np.s_[:Ly,Lx-1]]
-    edgefield_k = np.zeros((2*Ly, Lx+1), dtype='complex128')
-    for k, sl in zip(kernels, slices):
-        edges[sl] = gfield[sl].copy()
-        edgefield_k += np.fft.rfftn(edge)*np.fft.rfftn(k)
-        edge[sl] = 0.
-    return np.fft.irfftn(edgefield_k)[:Ly, :Lx]
