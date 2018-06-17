@@ -165,7 +165,7 @@ class Kernel(ModelComponent):
         """
         Ly, Lx, py, px = self.Ly, self.Lx, self.py, self.px
         flux = arr.reshape(Ly, Lx)
-        self._doublefluxpad[py:py+Ly, px:px+Ly] = flux[:,:]
+        self._doublefluxpad[py:py+Ly, px:px+Lx] = flux[:,:]
         flux_k = self.fft.fft2(self._doublefluxpad)
         out = self.fft.ifft2(self.psf_k * self.mg_k * flux_k)
         if not self.edges:

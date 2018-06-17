@@ -126,7 +126,7 @@ class Deconvolver(ADMM):
         def apply_kernel(x): return self._apply_x_update_kernel(x, rho)
         return MyLinearOperator((N_pad, N_pad), matvec=apply_kernel)
 
-    def start_lagrange_mult(self, x0, z0, rho, phi=None, **kwargs):
+    def start_lagrange_mult(self, x0, z0, rho, phi, **kwargs):
         """
         Calculates the initial lagrange multiplier which ensures that
         ADMM is stable if started at the correct x0, z0. The result of
@@ -334,7 +334,7 @@ class TVDeconvolver(Deconvolver):
         """
         x0 = x0 if x0 is not None else np.random.randn(self.n)/np.sqrt(self.n)
 
-        f_args = (phi,)
+        f_args = (phi.ravel(),)
         f_kwargs = {}
         f_kwargs['maxiter'] = kwargs.get('maxiter', 200)
         f_kwargs['tol'] = kwargs.get('tol', 1E-6)
