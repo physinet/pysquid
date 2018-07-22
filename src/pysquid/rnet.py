@@ -6,8 +6,6 @@ date: 2015-11-14
 
 This computes currents in a resistor network provided by a mask
 in order to approximate current entering and leaving an image.
-
-
 """
 
 from __future__ import print_function
@@ -22,6 +20,106 @@ import numpy as np
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import coo_matrix
 from collections import defaultdict
+from scipy.ndimage import label
+
+def meshcornerindices(i, Lx):
+    """ upper-left, lower-left, lower-right, upper-right """
+    ul = i + i // Lx
+    return [ul, ul + Lx + 1, ul + Lx + 2, ul + 1]
+
+def meshedges(i, Ly, Lx):
+    """ left, bottom, right, top """
+    Nhor = Lx*(Ly + 1)
+    return [i + i//Lx + Nhor, i + Lx, i + i//Lx + Nhor+1, i]  # CCW
+
+def edgemeshes(e, Ly, Lx):
+    Nhor = Lx*(Ly + 1)
+    if e < Nhor:
+        y, x = e // Lx, e % Lx
+        if y == 0:  # top edge
+            return [e]
+        elif y == Ly:  # bottom edge
+            return [e - Lx]
+        else:
+            return [e, e - Lx]
+    else:  #vertical
+        e -= Nhor
+        y, x = e // (Lx+1), e % (Lx+1)
+        if x == 0:  # left edge
+            return [e - y]
+        elif x == Lx:  # right edge
+            return [e - y - 1]
+        else:
+            return [e - y, e - y - 1]
+
+def sharededge(m, n, Ly, Lx):
+    medges = set(meshedges(m, Ly, Lx))
+    nedges = set(meshedges(n, Ly, Lx))
+    return medges.intersection(nedges).pop()
+
+def meshholefromedge(mask, edge):
+    flatmask = mask.flat
+    for m in edgemeshes(edge, *mask.shape):
+        if not flatmask[m]:  # hole in mask
+            return m
+
+def nodetoedgepath(nodepath, G):
+    epath = []
+    for x, y in zip(nodepath[:-1], nodepath[1:]):
+        v = G.edges[x]
+        while v:
+            if v.y == y:
+                epath.append(v.w)
+                break
+            v = v.nextedge
+    return epath
+
+def findtopology(mask, G):
+    """ 
+    This function returns closed paths in resistor corner indices which surround
+    topologically distinct holes in the mask. Returns path in counter-clockwise
+    direction in accordance with the right hand rule and positive current
+    creating a magnetic field which points out of the page.
+    """
+    comps, num = label(1 - mask)
+    cflat = comps.ravel()
+    indices = np.array(range(len(cflat)))
+    Lx = mask.shape[1]
+    loops = []
+    for comp in range(1, num+1):
+        corners = set()
+        for i in indices[cflat == comp]:
+            for c in meshcornerindices(i, Lx):
+                if G.edges[c] is not None:
+                    corners.add(c)
+        path = [corners.pop()]
+        while corners:
+            v = G.edges[path[-1]]
+            N = len(corners)
+            while v:
+                if v.y in corners:
+                    path.append(v.y)
+                    corners.remove(v.y)
+                    v = None
+                else:
+                    v = v.nextedge
+            if len(corners) == N:
+                break
+        if not len(corners):  # if path consumed corners
+            v, p0 = G.edges[path[-1]], path[0]
+            while v:
+                if v.y == p0:  # path closes on itself
+                    path.append(v.y)  # make path closed for next step
+                    # Correct the orientation
+                    medges = meshedges(meshholefromedge(mask, v.w),
+                                       *mask.shape)
+                    orient = 2*(medges.index(v.w) < 2) - 1
+                    orient = (2*(path[-2] < path[-1]) - 1) * orient
+                    loops.append(path if orient > 0 else path[::-1])
+                    break
+                else:
+                    v = v.nextedge
+    return loops
 
 
 class ResistorNetworkModel(ModelComponent):
@@ -58,21 +156,30 @@ class ResistorNetworkModel(ModelComponent):
 
         self.deltaV = kwargs.get('deltaV', 1.)
         self._setupGridsNumbers()
-        Ly, Lx = self.Ly, self.Lx
 
         self.kernel = kernel
         self.phi_offset = phi_offset if phi_offset is not None else [0, 0]
-        self.gshape = gshape if gshape is not None else (Ly, Lx)
+        self.gshape = gshape if gshape is not None else mask.shape
         self.padding = padding if padding is not None else [0, 0]
         self.resistors = kwargs.get('resistors', np.ones(self.N_hor+self.N_ver))
-
         self.electrodes = kwargs.get('electrodes', np.array([0, self.Lx]))
 
-        row, col, data, G = self._constructMeshMatrices()
-        sparsemat = self._appliedVoltageGeometry(row, col, data, G,
-                                                 *self.electrodes)
-        self._constructSparseMatrix(sparsemat)
-        self.solveRnet()
+        # Build matrix coupling loop voltages
+        row, col, data, self.G = self._make_meshandgraph()
+
+        cathode, anode = self.electrodes
+        self.vpath = self.G.findpath(cathode, anode, self.G.bfs(cathode))
+
+        for loop in findtopology(mask, self.G):
+            row, col, data = self._addloop(row, col, data, self.G, loop, 0.)
+        row, col, data = self._addloop(row, col, data, self.G, self.vpath, 
+                                       self.deltaV)
+        self.R = coo_matrix(
+            (data, (row, col)), (self.N_loops, self.N_loops)
+        ).tocsc()
+
+        # solve for loop currents
+        self.solve()
         self.updateParams('J_ext', [1.])
 
     def __setstate__(self, d):
@@ -103,22 +210,11 @@ class ResistorNetworkModel(ModelComponent):
 
         # Mesh coordinates
         self.meshIndex = (np.cumsum(self.maskflat)-1).astype('int')
-        self.N_meshes = max(self.meshIndex)+1
-        self.N_loops = self.N_meshes + 1
-        self.voltageConst = np.zeros(self.N_loops)
-        self.voltageConst[-1] = self.deltaV
+        self.N_meshes = np.sum(self.mask>0)
+        self.N_loops = self.N_meshes #  will add loops!
+        self.v = np.zeros(self.N_loops)
 
-    def meshEdgeIndices(self, i):
-        # left, bottom, right, top
-        return [i + i//self.Lx + self.N_hor, i + self.Lx, 
-                i + i//self.Lx + self.N_hor+1, i]  # CCW
-
-    def meshIndexCornerIndices(self, i):
-        ul = i + i // self.Lx
-        # upper-left, lower-left, lower-right, upper-right
-        return [ul, ul + self.Lx + 1, ul + self.Lx + 2, ul + 1]
-
-    def _constructMeshMatrices(self):
+    def _make_meshandgraph(self):
         """
         This function computes self.meshMatrix as a sparse matrix
         by loops over the meshes of a square grid. It also computes
@@ -127,124 +223,153 @@ class ResistorNetworkModel(ModelComponent):
         contain them.
         """
         row, col, data = [], [], []
-        neigh = np.array([[-1, 0], [0, 1], [1, 0], [0, -1]])  # leftdownrightup
+        neigh = [[-1, 0], [0, 1], [1, 0], [0, -1]]  # leftdownrightup
         Lx, Ly, N_hor = self.Lx, self.Ly, self.N_hor
         self.meshEdges = defaultdict(list)   # {'mesh': [list of edges]}
         self.edgeMeshes = defaultdict(list)  # {'edge': [list of meshes]}
-        G = Graph((Lx+1) * (Ly+1))
+        G = Graph((Lx + 1) * (Ly + 1))
 
-        for i in np.arange(self.N)[self.maskflat > 0]:
+        meshes = np.arange(self.N)[self.maskflat > 0]
+        for i in meshes:
             mesh = self.meshIndex[i]  # meshes don't cound empty spots
-            mesh_coord = np.array([i % Lx, i//Lx])  # x, y coordinates
-            mesh_edges = self.meshEdgeIndices(i)
+            mesh_edges = meshedges(i, *self.mask.shape)
 
             self.meshEdges[mesh] = mesh_edges
-            row += [mesh]
-            col += [mesh]
-            data += [self.resistors[mesh_edges].sum()]
+            row.append(mesh)
+            col.append(mesh)
+            data.append(self.resistors[mesh_edges].sum())
 
-            ul, ll, lr, ur = self.meshIndexCornerIndices(i)
+            ul, ll, lr, ur = meshcornerindices(i, self.Lx)
             G.insert(ul, ur, i)  # w = resistor label
             G.insert(ul, ll, i + N_hor + i//Lx)
 
-            for edge, n in zip(mesh_edges, neigh):
-                self.edgeMeshes[edge] += [mesh]
-                neigh_x, neigh_y = mesh_coord + n
-                neigh_mesh = neigh_x + neigh_y*Lx
-                if 0 <= neigh_x < Lx and 0 <= neigh_y < Ly:
-                    inside = True
-                    mesh_neigh_no = self.meshIndex[neigh_mesh]
-                    neigh_mask = self.maskflat[neigh_mesh]
-                    if neigh_mask:
-                        row += [mesh]
-                        col += [mesh_neigh_no]
-                        data += [-1 * self.resistors[edge]]  # counter rotating
-                else:
-                    inside = False
-                    neigh_mask = 0
+            [self.edgeMeshes[edge].append(mesh) for edge in mesh_edges]
 
-                if not inside or not neigh_mask:
-                    if np.all(n == [1, 0]):
-                        G.insert(ur, lr, ul + 1 + Lx + 1)
-                    elif np.all(n == [0, 1]):
-                        G.insert(ll, lr, i + Lx)
+            ix, iy = i % Lx, i // Lx
+            if (ix == Lx - 1) or not (i+1 in meshes):  # right edge
+                G.insert(ur, lr, i + N_hor + i//Lx + 1)
+                
+            if (iy == Ly - 1) or not (i+Lx in meshes):  # bottom edge
+                G.insert(ll, lr, i + Lx)
+
+            if ix == Lx - 1 and iy < Ly - 1:  # right edge
+                nextmeshes, nextedges = [i + Lx], [mesh_edges[1]]
+            elif ix < Lx - 1 and iy == Ly - 1:  # bottom edge
+                nextmeshes, nextedges = [i + 1], [mesh_edges[2]]
+            elif ix < Lx - 1 and iy < Ly - 1:
+                nextmeshes, nextedges = [i + 1, i + Lx], mesh_edges[1:3]
+            else:
+                nextmeshes, nextedges = [], []
+                
+            for j, edge in zip(nextmeshes, nextedges):
+                jx, jy = j % Lx, j // Lx
+                if j in meshes:
+                    row.append(mesh)
+                    col.append(self.meshIndex[j])
+                    data.append(-1 * self.resistors[edge])
+                    # symmetric!
+                    row.append(self.meshIndex[j])
+                    col.append(mesh)
+                    data.append(-1 * self.resistors[edge])
+            
         self.N_currents = G.ne
         return row, col, data, G
 
-    def _appliedVoltageGeometry(self, row, col, data, G, cathode, anode):
-        """
-        Given nxGraph, row, col, and data from self._constructMeshMatrices,
-        adds to row, col, and data a global voltage loop between the cathode
-        and anode nodes in the self.electrodes list. Uses A* to compute the
-        shortest path between them, returns (data, (row, col)) in the format
-        that scipy.sparse.coo_matrix uses.
-        """
-        # Find shortest path between cathode and anode
-        path = G.findpath(cathode, anode, G.bfs(cathode))
+    def _addloop(self, row, col, data, G, path, voltage):
+        edgepath = nodetoedgepath(path, G)
 
-        # Reconstruct edge path
-        self._global_edge_path = []
-        for x, y in zip(path[:-1], path[1:]):
-            v = G.edges[x]
-            while v:
-                if v.y == y:
-                    self._global_edge_path.append(v.w)
-                    break
-                v = v.nextedge
-        self._global_edge_path = np.array(self._global_edge_path)
+        # add the loop voltage and edges
+        self.v = np.concatenate([self.v, [voltage]])
+        self.N_loops += 1
+        self.meshEdges[self.N_loops-1] = edgepath
 
-        self.meshEdges[self.N_loops-1] = self._global_edge_path
-        orientation = [1, 1, -1, -1]  # leftdownrightup order as above
-        for edge, n1, n2 in zip(self._global_edge_path, path[:-1], path[1:]):
+        for edge, n1, n2 in zip(edgepath, path[:-1], path[1:]):
             for m in self.edgeMeshes[edge]:
-                orient_edge = orientation[self.meshEdges[m].index(edge)]
-                orient_edge = (2*(n1 < n2)-1)*orient_edge
+                medges = self.meshEdges[m]
+                if len(medges) > 4:  # find grid mesh in mask hole
+                    medges = meshedges(meshholefromedge(self.mask, edge),
+                                       *self.mask.shape)
 
-                row += [m]
-                col += [self.N_loops-1]
-                data += [self.resistors[edge]*orient_edge]
+                # right-hand-rule and path direction
+                orient = 2*(medges.index(edge) < 2) - 1
+                orient = (2 * (n1 < n2) - 1) * orient
 
-                row += [self.N_loops-1]
-                col += [m]
-                data += [self.resistors[edge]*orient_edge]
+                row.append(m)
+                col.append(self.N_loops - 1)
+                data.append(orient * self.resistors[edge])
+                # symmetric!
+                row.append(self.N_loops - 1)
+                col.append(m)
+                data.append(orient * self.resistors[edge])
             
-            self.edgeMeshes[edge] += [self.N_loops-1]
+            self.edgeMeshes[edge].append(self.N_loops-1)
 
-        row += [self.N_loops-1]
-        col += [self.N_loops-1]
-        data += [self.resistors[self._global_edge_path].sum()]
+        row.append(self.N_loops - 1)
+        col.append(self.N_loops - 1)
+        data.append(self.resistors[edgepath].sum())
+        return row, col, data
 
-        self._globalLoopPatch = self._appliedLoopGPatch(self._global_edge_path)
-        return (data, (row, col))
-
-    def _appliedLoopGPatch(self, edge_path):
+    #TODO: Understand why the orientations of the current loops are not always
+    #right
+    def _loop_patches(self):
         """ 
         Convention: right-hand-rule, CCW currents are positive so that B-field
         is positive out of the page
         """
-        hor = np.zeros((self.Ly + 1, self.Lx))
-        ver = np.zeros((self.Ly, self.Lx + 1))
-        for e in edge_path:
-            if e < self.N_hor:  # horizontal currents
-                hor[e//self.Lx, e % self.Lx] = 1.
-            else:  # vertical currents
-                ver[(e - self.N_hor)//(self.Lx + 1), 
-                    (e - self.N_hor) % (self.Lx + 1)] = 1.
-        return np.cumsum(hor, 1)[:-1] * np.cumsum(ver, 0)[:,:-1]
+        self.gpatch = np.zeros(self.mask.shape, dtype='float')
+        gpatchflat = self.gpatch.ravel()
+        comps, num = label(1 - self.mask)
+        cflat = comps.ravel()
+        loopcurrents = self.i[self.N_meshes:]
+        for comp, i in zip(range(1, num+1), loopcurrents[:-1]):
+            gpatchflat[cflat == comp] = i
 
-    def _constructSparseMatrix(self, sprmat):
-        N = self.N_loops
-        self.meshRMatrix = coo_matrix(sprmat, (N, N)).tocsc()
+        self.vloop = np.zeros_like(self.gpatch)
+        vloopflat = self.vloop.ravel()
+        epath = nodetoedgepath(self.vpath, self.G)
 
+        p0, p1 = self.vpath[:2] 
+        v = self.G.edges[p0]
+        while v:
+            if v.y == p1:
+                break
+            v = v.nextedge
+        m = edgemeshes(v.w, *self.mask.shape)[0]
+        orient = 2*(meshedges(m, *self.mask.shape).index(v.w) < 2) - 1
+        orient = (2 * (p0 < p1) - 1) * orient
+
+        queue = set([m])
+        done = set([])
+        while queue:
+            n = queue.pop()
+            vloopflat[n] = orient
+            done.add(n)
+
+            ny, nx = n//self.Lx, n%self.Lx
+            for y, x in zip([1, -1, 0, 0], [0, 0, 1, -1]):
+                my, mx = ny + y, nx + x
+                if my < 0 or my == self.Ly or mx < 0 or mx == self.Lx:
+                    continue  # outside domain
+        
+                m = my * self.Lx + mx
+                if m in done:
+                    continue  # don't reprocess points
+                if not sharededge(m, n, *self.mask.shape) in epath:
+                    queue.add(m)  # cannot cross loop path
+
+        return self.gpatch + self.i[-1] * self.vloop
+    
     # ==============================
     #   Calculate currents and fields
     # ==============================
 
-    def solveRnet(self):
-        self.meshCurrents = spsolve(self.meshRMatrix, self.voltageConst)
-        self.gfieldflat[self.maskflat == 1] = self.meshCurrents[:-1].copy()
+    def solve(self):
+        self.i = spsolve(self.R, self.v)
+        self.gfieldflat[self.maskflat == 1] = self.i[:self.N_meshes].copy()
         self.gfield = self.gfieldflat.reshape(self.Ly, self.Lx)
-        self.gfield += self.meshCurrents[-1] * self._globalLoopPatch
+        self._gnoloop = self.gfield.copy()
+        self._gpatch = self._loop_patches()
+        self.gfield += self._gpatch
         return False
 
     @property
@@ -281,7 +406,7 @@ class ResistorNetworkModel(ModelComponent):
         if self.kernel:
             self._unitJ_flux = self.kernel.applyM(self.gfield).real
         else:
-            self._unitJ_flux = np.zeros_like(self.mask)
+            self._unitJ_flux = np.zeros_like(self.mask, dtype='float')
             print('No kernel attribute\n')
 
     def _updateModel_g(self):
@@ -298,7 +423,7 @@ class ResistorNetworkModel(ModelComponent):
             self._d_unitJ_flux = self.kernel.computeGradients(self.gfield)
             self.d_ext_flux = self.J_ext*self._d_unitJ_flux[self._cut]
         else:
-            self.d_ext_flux = np.zeros_like(self.ext_flux)
+            self.d_ext_flux = np.zeros_like(self.ext_flux, dtype='float')
         return self.d_ext_flux
 
     @property

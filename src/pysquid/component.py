@@ -28,8 +28,9 @@ class ModelComponent(object):
         self._shape = shape
         self.Ly, self.Lx = shape
         self.N = self.Lx*self.Ly
-        self.dx = kwargs.get('dx', 1.)
-        self.dy = kwargs.get('dy', 1.)
+        self.rxy = kwargs.get('rxy', 1.)
+        #self.dx = kwargs.get('dx', 1.)
+        #self.dy = kwargs.get('dy', 1.)
 
         self._padding = padding if padding is not None else [0, 0]
         self.py, self.px = self._padding

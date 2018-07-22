@@ -10,19 +10,18 @@ information and a point-spread function (PSF).
 
 """
 
-from __future__ import division, print_function
 import numpy as np
+
 from pysquid.kernels.kernel import Kernel
 
 
 class GaussianKernel(Kernel):
-    def __init__(self, shape, psf_params = None,
-                 padding = None, **kwargs):
+    def __init__(self, shape, params=None, padding=None, **kwargs):
         """
         Single Gaussian PSF kernel. params are x and y-standard deviations
         input:
             shape : tuple of ints (ly, lx),  shape of measured flux field
-            psf_params : 3-element numpy array.  list of parameters for 
+            params : 3-element numpy array.  list of parameters for 
                     point spread function. 
                     First element is always height above plane. Second and third
                     elements are sigma_x and sigma_y of Gaussian
@@ -40,30 +39,19 @@ class GaussianKernel(Kernel):
 
 
         """
-        self.psf_params = psf_params if psf_params is not None else np.array([1., 1., 1.])
-        super(GaussianKernel, self).__init__(shape, self.psf_params, 
-                                             padding, **kwargs)
         if not len(self.psf_params) == 3:
             raise RuntimeError('len(params) must be 3')
-         
-        self._updatePSF()
-        self._updateMPSF()
+        self.psf_params = params if params is not None else np.array([1., 1., 1.])
+        super().__init__(shape, self.psf_params, padding, **kwargs)
 
-    def _updatePSF(self):
+    def _updatepsf(self):
         z, sx, sy = self.psf_params
         #Shifted to center at 0,0 (to match fourier method)
         x0, y0 = self.d_xg[0,0], self.d_yg[0,0]
         d_xg, d_yg = self.d_xg - x0, self.d_yg - y0 
-        self.PSF = np.exp(-((d_xg/sx)**2 +
-                            (d_yg/sy)**2 )/2)#/(2*np.pi*sx*sy)
-        self.PSF /= self.PSF.sum()*self.dx*self.dy
-        self.d_PSF = np.rollaxis(np.array([self.PSF*((d_xg**2-sx*sx)/sx**3),
-                                           self.PSF*((d_yg**2-sy*sy)/sy**3)]),
-                                 0, 3) #Shape (ly, lx, N_psf_params)
-
-        self.d_PSF_k = np.rollaxis(np.array([self.fftw.fft(self.d_PSF[:,:,i]) for i in
-                                             range(self.d_PSF.shape[2])]), 0, 3)
-        self.PSF_k = self.fftw.fft(self.PSF)
+        self.psf = np.exp(-((d_xg/sx)**2 + (d_yg/sy)**2)/2)
+        self.psf /= self.psf.sum()*self.dx*self.dy
+        self.psf_k = self.fftw.fft(self.psf)
 
 
 class MogKernel(Kernel):
@@ -93,13 +81,10 @@ class MogKernel(Kernel):
         self.psf_params = psf_params.ravel()
         if (self.psf_params.size - 1) % 5:
             raise RuntimeError("psf_params must be of size 5n+1")
-        super(MogKernel, self).__init__(shape, self.psf_params, padding,
-                                        **kwargs)
+        super().__init__(shape, self.psf_params, padding, **kwargs)
         self.N_g = (self.psf_params.size-1) // 5
-        self._updatePSF()
-        self._updateMPSF()
 
-    def _updatePSF(self):
+    def _updatepsf(self):
         #Log params for a, sx, sy
         p = self.psf_params[1:].reshape(self.N_g, 5)
         x, y, sx, sy = p[:,1], p[:,2], p[:,3], p[:,4]
@@ -107,26 +92,23 @@ class MogKernel(Kernel):
         Dx, Dy = xg[:,:,None]-x[None,None,:], yg[:,:,None]-y[None,None,:]
         g = np.exp(- Dx**2/(2*sx[None,None,:]**2) - Dy**2/(2*sy[None,None,:]**2))
         g = p[:,0][None,None,:]*g/np.sqrt(2*np.pi*sx*sy[None,None,:])
-        self.PSF = g.sum(2)
-        self.PSF /= self.PSF.sum()*self.dx*self.dy
-        self.PSF_k = self.fftw.fft(self.PSF)
-        # Gradient not implemented
-        self.d_PSF_k = np.zeros((2*self.Ly_pad, 2*self.Lx_pad, 5*self.N_g))
+        self.psf = g.sum(2)
+        self.psf /= self.psf.sum()*self.dx*self.dy
+        self.psf_k = self.fftw.fft(self.psf)
 
 
 from scipy.special import expit, logit
 
 
 class PlatonicKernel(Kernel):
-    def __init__(self, shape, psf_params = None,
-                 padding = None, **kwargs):
+    def __init__(self, shape, params=None, padding=None, **kwargs):
         """
         This is an implementation of a platonic approximation
         to the PSF of a key-shaped squid-loop. It is a solid,
         smoothed circle and rectangle with reduced amplitude.
         input:
             shape: tuple (Ly, Lx) of data shape
-            psf_params: ndarray of log-parameters
+            params: ndarray of log-parameters
                         [height, radius, length, width, keyamp, amp]
 
             NOTE: this model PSF transforms parameters to enforce
@@ -146,24 +128,17 @@ class PlatonicKernel(Kernel):
                 h: step-size for central difference derivatives
                     of PSF with respect to parameters
         """
+        assert len(self.psf_params) == 6, "len(params) must be 6"
         default = np.log(np.array([1., 5., 5., .7, 0.33, 1.]))
         self.d = kwargs.get('d', 0.25)
         self.h = kwargs.get('h', 1E-7)
-        self.psf_params = psf_params if psf_params is not None else default
-        super(PlatonicKernel, self).__init__(shape, self.psf_params, 
-                                             padding, **kwargs)
-        assert len(self.psf_params) == 6, "len(params) must be 6"
+        self.psf_params = params if params is not None else default
+        super().__init__(shape, self.psf_params, padding, **kwargs)
 
-        d_psf_shape = (2*self.Ly_pad, 2*self.Lx_pad, len(self.psf_params))
-        self.d_PSF = np.zeros(d_psf_shape)
-        self.d_PSF_k = np.zeros(d_psf_shape, dtype='complex128')
-        self._updatePSF()
-        self._updateMPSF()
-
-    def _updatePSF(self):
+    def _updatepsf(self):
         p0 = self.psf_params.copy()
-        self.PSF = self._psf(p0) 
-        self.PSF_k = self.fftw.fft(self.PSF)
+        self.psf = self._psf(p0) 
+        self.PSF_k = self.fftw.fft(self.psf)
 
         for ip in range(len(p0)):
             p0[ip] += self.h/2.
