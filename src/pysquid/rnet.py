@@ -1,8 +1,7 @@
 """
 rnet.py
 
-author: Colin Clement
-date: 2015-11-14
+author: Colin Clement date: 2015-11-14
 
 This computes currents in a resistor network provided by a mask
 in order to approximate current entering and leaving an image.
@@ -10,8 +9,6 @@ in order to approximate current entering and leaving an image.
 
 from __future__ import print_function
 
-from pysquid.kernels.kernel import BareKernel
-from pysquid.kernels.psf import GaussianBlurKernel
 from pysquid.component import ModelComponent
 from pysquid.util.graph import Graph
 from pysquid.util.helpers import curl
@@ -86,6 +83,7 @@ def findtopology(mask, G):
     indices = np.array(range(len(cflat)))
     Lx = mask.shape[1]
     loops = []
+    loopcomps = []
     for comp in range(1, num+1):
         corners = set()
         for i in indices[cflat == comp]:
@@ -116,10 +114,11 @@ def findtopology(mask, G):
                     orient = 2*(medges.index(v.w) < 2) - 1
                     orient = (2*(path[-2] < path[-1]) - 1) * orient
                     loops.append(path if orient > 0 else path[::-1])
+                    loopcomps.append(comp)  # only track loop components
                     break
                 else:
                     v = v.nextedge
-    return loops
+    return loops, loopcomps
 
 
 class ResistorNetworkModel(ModelComponent):
@@ -169,8 +168,9 @@ class ResistorNetworkModel(ModelComponent):
 
         cathode, anode = self.electrodes
         self.vpath = self.G.findpath(cathode, anode, self.G.bfs(cathode))
+        self._topology = findtopology(mask, self.G)
 
-        for loop in findtopology(mask, self.G):
+        for loop in self._topology[0]:
             row, col, data = self._addloop(row, col, data, self.G, loop, 0.)
         row, col, data = self._addloop(row, col, data, self.G, self.vpath, 
                                        self.deltaV)
@@ -321,7 +321,7 @@ class ResistorNetworkModel(ModelComponent):
         comps, num = label(1 - self.mask)
         cflat = comps.ravel()
         loopcurrents = self.i[self.N_meshes:]
-        for comp, i in zip(range(1, num+1), loopcurrents[:-1]):
+        for comp, i in zip(self._topology[1], loopcurrents[:-1]):
             gpatchflat[cflat == comp] = i
 
         self.vloop = np.zeros_like(self.gpatch)
