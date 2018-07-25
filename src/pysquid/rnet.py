@@ -71,6 +71,17 @@ def nodetoedgepath(nodepath, G):
             v = v.nextedge
     return epath
 
+def fillones(mask):
+    comps, num = label(1 - mask)
+    cflat = comps.ravel()
+    maskflat = mask.ravel()
+    indices = np.array(range(len(cflat)))
+    for comp in range(1, num+1):
+        i = indices[cflat == comp]
+        if len(i)==1:
+            maskflat[i] = 1
+    return mask
+
 def findtopology(mask, G):
     """ 
     This function returns closed paths in resistor corner indices which surround
@@ -83,7 +94,7 @@ def findtopology(mask, G):
     indices = np.array(range(len(cflat)))
     Lx = mask.shape[1]
     loops = []
-    loopcomps = []
+    loopindices = []
     for comp in range(1, num+1):
         corners = set()
         for i in indices[cflat == comp]:
@@ -114,11 +125,11 @@ def findtopology(mask, G):
                     orient = 2*(medges.index(v.w) < 2) - 1
                     orient = (2*(path[-2] < path[-1]) - 1) * orient
                     loops.append(path if orient > 0 else path[::-1])
-                    loopcomps.append(comp)  # only track loop components
+                    loopindices.append(indices[cflat==comp])
                     break
                 else:
                     v = v.nextedge
-    return loops, loopcomps
+    return loops, loopindices
 
 
 class ResistorNetworkModel(ModelComponent):
@@ -150,7 +161,7 @@ class ResistorNetworkModel(ModelComponent):
                      [0, Lx], i.e. the top two corners
                      Specify in original mask units.
         """
-        self.mask = mask
+        self.mask = fillones(mask)  # Since single holes do not remove resistors
         super(ResistorNetworkModel, self).__init__(mask.shape, **kwargs)
 
         self.deltaV = kwargs.get('deltaV', 1.)
@@ -168,7 +179,10 @@ class ResistorNetworkModel(ModelComponent):
 
         cathode, anode = self.electrodes
         self.vpath = self.G.findpath(cathode, anode, self.G.bfs(cathode))
-        self._topology = findtopology(mask, self.G)
+        if not self.vpath:
+            raise RuntimeError("No path exists between cathode and anode")
+            
+        self._topology = findtopology(self.mask, self.G)
 
         for loop in self._topology[0]:
             row, col, data = self._addloop(row, col, data, self.G, loop, 0.)
@@ -285,10 +299,11 @@ class ResistorNetworkModel(ModelComponent):
 
         for edge, n1, n2 in zip(edgepath, path[:-1], path[1:]):
             for m in self.edgeMeshes[edge]:
-                medges = self.meshEdges[m]
-                if len(medges) > 4:  # find grid mesh in mask hole
+                if m >= self.N_meshes:  # find grid mesh in mask hole
                     medges = meshedges(meshholefromedge(self.mask, edge),
                                        *self.mask.shape)
+                else:
+                    medges = self.meshEdges[m]
 
                 # right-hand-rule and path direction
                 orient = 2*(medges.index(edge) < 2) - 1
@@ -309,8 +324,6 @@ class ResistorNetworkModel(ModelComponent):
         data.append(self.resistors[edgepath].sum())
         return row, col, data
 
-    #TODO: Understand why the orientations of the current loops are not always
-    #right
     def _loop_patches(self):
         """ 
         Convention: right-hand-rule, CCW currents are positive so that B-field
@@ -321,8 +334,8 @@ class ResistorNetworkModel(ModelComponent):
         comps, num = label(1 - self.mask)
         cflat = comps.ravel()
         loopcurrents = self.i[self.N_meshes:]
-        for comp, i in zip(self._topology[1], loopcurrents[:-1]):
-            gpatchflat[cflat == comp] = i
+        for inds, i in zip(self._topology[1], loopcurrents[:-1]):
+            gpatchflat[inds] = i
 
         self.vloop = np.zeros_like(self.gpatch)
         vloopflat = self.vloop.ravel()
