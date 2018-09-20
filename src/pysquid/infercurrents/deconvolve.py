@@ -238,7 +238,7 @@ class TVDeconvolver(Deconvolver):
         super(TVDeconvolver, self).__init__(kernel, **kwargs)
 
         Ly_pad, Lx_pad = self.kernel._padshape
-        dy, dx = self.kernel.dy, self.kernel.dx
+        dy, dx = 1., self.kernel.rxy
         self.Dh, self.Dv = makeD2_operators((Ly_pad, Lx_pad), dx, dy)
 
         self.A = vstack([self.Dh, self.Dv])

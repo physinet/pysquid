@@ -65,7 +65,7 @@ class Kernel(ModelComponent):
         self._doubleg = np.zeros(self._fftshape)
         self._doublefluxpad = np.zeros(self._fftshape)
         
-        self.updateParams('psf_params', kwargs.get('params', [1.]))
+        self.updateParams('params', params if params is not None else [1.])
 
     def __setstate__(self, d):
         self.__dict__ = d
@@ -84,8 +84,8 @@ class Kernel(ModelComponent):
         params = list of at least one number
         set up for lazy evaluation
         """
-        if name == 'psf_params':
-            self.psf_params = copy(values)
+        if name == 'params':
+            self.params = copy(values)
             self._updatem()
             self._updatepsf()
             if not self.edges:
@@ -93,13 +93,13 @@ class Kernel(ModelComponent):
 
     def _updatem(self):
         self.mg = _gGreensFunction(
-            self.rxy/2., -1/2., self.d_xg, self.d_yg, self.psf_params[0],
+            self.rxy/2., -1/2., self.d_xg, self.d_yg, self.params[0],
             self.rxy, 1.
         )
         self.mg_k = self.fft.fft2(self.mg)
 
     def _updateE(self):
-        height, rxy = self.psf_params[0], self.rxy
+        height, rxy = self.params[0], self.rxy
         Ly, Lx = self.Ly_pad, self.Lx_pad
         x = np.fft.fftshift(rxy*np.arange(-Lx, Lx)[None,:])
         y = np.fft.fftshift(np.arange(-Ly, Ly)[:,None])

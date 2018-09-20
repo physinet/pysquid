@@ -143,7 +143,7 @@ class LinearModelTV_ADMM(LinearModel):
         self.lamb = np.random.randn(self.N_pad*2)/(2*self.N_pad)
         
         self.Dh, self.Dv = makeD2_operators((self.Ly_pad, self.Lx_pad),
-                                            dx = self.dx, dy = self.dy)
+                                            dx=self.rxy, dy=1.)
         self.D = vstack([self.Dh, self.Dv])
         
     def _makeLinearOperators(self):
