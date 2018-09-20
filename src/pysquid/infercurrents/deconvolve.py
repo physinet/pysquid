@@ -306,6 +306,13 @@ class TVDeconvolver(Deconvolver):
                                  options=options)
         return self._zminsol['x']
 
+    def nlnprob(self, phi, g):
+        """
+        Evaluates the negative log probability of g given phi
+        """
+        z = self.A.dot(g.ravel())
+        return self.cost(g.ravel(), z, f_args=(phi.ravel(),))
+
     def deconvolve(self, phi, x0=None, **kwargs):
         """
         Perform a deconvolution of data phi with provided kernel.
