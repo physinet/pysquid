@@ -12,29 +12,28 @@ from scipy.optimize import leastsq
 
 
 class Mog(object):
-    def __init__(self, shape, N_g, params = None, 
-                 spacing = None, **kwargs):
+    def __init__(self, shape, N_g, params=None, rxy=None, **kwargs):
         self.shape = shape
         self.Ly, self.Lx = shape
         self.N_g = N_g
-        self.dy, self.dx = spacing if spacing is not None else [1., 1.]
+        self.rxy = rxy or 1.
 
         x = np.arange(self.Lx)
         y = np.arange(0, -self.Ly, -1)
         self.xg, self.yg = np.meshgrid(x, y)
         self.xg = self.dx*(self.xg-self.Lx/2.)
-        self.yg = self.dy*(self.yg+self.Ly/2.)
+        self.yg = (self.yg+self.Ly/2.)
         self.mixture = np.zeros(self.shape)
         self.d_params = np.zeros((self.xg.size, self.N_g*5))
         self.params = params
         if self.params is None:
             #Initialize A, x, y, sx, sy, for each gaussian
-            a = np.sqrt(self.dx*self.dy),
+            a = np.sqrt(self.rxy),
             self.params = np.c_[np.random.rand(N_g),
-                                3*self.dx*np.random.randn(N_g),
-                                3*self.dy*np.random.randn(N_g),
-                                3*self.dx + np.random.randn(N_g),
-                                3*self.dy + np.random.randn(N_g)]
+                                3*self.rxy*np.random.randn(N_g),
+                                3*np.random.randn(N_g),
+                                3*self.rxy + np.random.randn(N_g),
+                                3 + np.random.randn(N_g)]
             self.params[:,0] /= self.params[:,0].sum()
         self.logparams = self.getlogp(self.params)
         self.update(self.logparams)

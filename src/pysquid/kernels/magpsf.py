@@ -39,28 +39,28 @@ class GaussianKernel(Kernel):
 
 
         """
-        if not len(self.psf_params) == 3:
+        if not len(params) == 3:
             raise RuntimeError('len(params) must be 3')
-        self.psf_params = params if params is not None else np.array([1., 1., 1.])
-        super().__init__(shape, self.psf_params, padding, **kwargs)
+        self.params = params if params is not None else np.array([1., 1., 1.])
+        super().__init__(shape, self.params, padding, **kwargs)
 
     def _updatepsf(self):
-        z, sx, sy = self.psf_params
+        z, sx, sy = self.params
         #Shifted to center at 0,0 (to match fourier method)
         x0, y0 = self.d_xg[0,0], self.d_yg[0,0]
         d_xg, d_yg = self.d_xg - x0, self.d_yg - y0 
         self.psf = np.exp(-((d_xg/sx)**2 + (d_yg/sy)**2)/2)
-        self.psf /= self.psf.sum()*self.dx*self.dy
-        self.psf_k = self.fftw.fft(self.psf)
+        self.psf /= self.psf.sum()*self.rxy
+        self.psf_k = self.fft.fft2(self.psf)
 
 
 class MogKernel(Kernel):
-    def __init__(self, shape, psf_params, padding = None, **kwargs):
+    def __init__(self, shape, params, padding = None, **kwargs):
         """
         Mixture of Gaussians PSF kernel.
         input:
             shape : tuple of ints (ly, lx),  shape of measured flux field
-            psf_params : list of parameters for 
+            params : list of parameters for 
                     point spread function. 
                     First element is always height above plane. What follows
                     is 5n parameters for n gaussians. the gaussian
@@ -78,23 +78,23 @@ class MogKernel(Kernel):
             _fftw_flags and _fftw_threads (see FFTW object)
 
         """
-        self.psf_params = psf_params.ravel()
-        if (self.psf_params.size - 1) % 5:
-            raise RuntimeError("psf_params must be of size 5n+1")
-        super().__init__(shape, self.psf_params, padding, **kwargs)
-        self.N_g = (self.psf_params.size-1) // 5
+        self.params = params.ravel()
+        if (self.params.size - 1) % 5:
+            raise RuntimeError("params must be of size 5n+1")
+        super().__init__(shape, self.params, padding, **kwargs)
+        self.N_g = (self.params.size-1) // 5
 
     def _updatepsf(self):
         #Log params for a, sx, sy
-        p = self.psf_params[1:].reshape(self.N_g, 5)
+        p = self.params[1:].reshape(self.N_g, 5)
         x, y, sx, sy = p[:,1], p[:,2], p[:,3], p[:,4]
         xg, yg = self.d_xg - self.d_xg[0,0], self.d_yg - self.d_yg[0,0]
         Dx, Dy = xg[:,:,None]-x[None,None,:], yg[:,:,None]-y[None,None,:]
         g = np.exp(- Dx**2/(2*sx[None,None,:]**2) - Dy**2/(2*sy[None,None,:]**2))
         g = p[:,0][None,None,:]*g/np.sqrt(2*np.pi*sx*sy[None,None,:])
         self.psf = g.sum(2)
-        self.psf /= self.psf.sum()*self.dx*self.dy
-        self.psf_k = self.fftw.fft(self.psf)
+        self.psf /= self.psf.sum()*self.rxy
+        self.psf_k = self.fft.fft2(self.psf)
 
 
 from scipy.special import expit, logit
@@ -128,17 +128,17 @@ class PlatonicKernel(Kernel):
                 h: step-size for central difference derivatives
                     of PSF with respect to parameters
         """
-        assert len(self.psf_params) == 6, "len(params) must be 6"
+        assert len(self.params) == 6, "len(params) must be 6"
         default = np.log(np.array([1., 5., 5., .7, 0.33, 1.]))
         self.d = kwargs.get('d', 0.25)
         self.h = kwargs.get('h', 1E-7)
-        self.psf_params = params if params is not None else default
-        super().__init__(shape, self.psf_params, padding, **kwargs)
+        self.params = params if params is not None else default
+        super().__init__(shape, self.params, padding, **kwargs)
 
     def _updatepsf(self):
-        p0 = self.psf_params.copy()
+        p0 = self.params.copy()
         self.psf = self._psf(p0) 
-        self.PSF_k = self.fftw.fft(self.psf)
+        self.PSF_k = self.fft.fft2(self.psf)
 
         for ip in range(len(p0)):
             p0[ip] += self.h/2.
@@ -147,7 +147,7 @@ class PlatonicKernel(Kernel):
             minus_h = self._psf(p0)
             self.d_PSF[:,:,ip] = (plus_h - minus_h)/self.h
             p0[ip] += self.h/2.
-            self.d_PSF_k[:,:,ip] = self.fftw.fft(self.d_PSF[:,:,ip])
+            self.d_PSF_k[:,:,ip] = self.fft.fft2(self.d_PSF[:,:,ip])
 
     @staticmethod
     def get_logp(params):
@@ -175,7 +175,7 @@ class PlatonicKernel(Kernel):
         """
         Get the constrained parameters
         """
-        return self.get_p(self.psf_params)
+        return self.get_p(self.params)
 
     def _circle(self, r):
         """

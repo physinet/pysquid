@@ -238,7 +238,7 @@ class TVDeconvolver(Deconvolver):
         super(TVDeconvolver, self).__init__(kernel, **kwargs)
 
         Ly_pad, Lx_pad = self.kernel._padshape
-        dy, dx = self.kernel.dy, self.kernel.dx
+        dy, dx = 1., self.kernel.rxy
         self.Dh, self.Dv = makeD2_operators((Ly_pad, Lx_pad), dx, dy)
 
         self.A = vstack([self.Dh, self.Dv])
@@ -305,6 +305,13 @@ class TVDeconvolver(Deconvolver):
                                  method='l-bfgs-b', jac=True,
                                  options=options)
         return self._zminsol['x']
+
+    def nlnprob(self, phi, g):
+        """
+        Evaluates the negative log probability of g given phi
+        """
+        z = self.A.dot(g.ravel())
+        return self.cost(g.ravel(), z, f_args=(phi.ravel(),))
 
     def deconvolve(self, phi, x0=None, **kwargs):
         """
