@@ -1,4 +1,4 @@
-“””
+"""
 adam.py
 
 author: Colin Clement
@@ -8,16 +8,16 @@ ADAM stochastic gradient descent optimizer.
 
 usage:
 
-opt = Adam(obj_grad_obj) 
+opt = Adam(obj_grad_obj)
 sol = opt.optimize(np.random.randn(N))
 
-“””
+"""
 
 import numpy as np
 
 
 class Adam(object):
-    def __init__(self, obj_grad_obj, D, lr=0.001, 
+    def __init__(self, obj_grad_obj, D, lr=0.001,
                  beta1=0.9, beta2=0.999, eps=1e-8):
         """
         ADAM stochastic gradient descent optimizer.
@@ -38,13 +38,13 @@ class Adam(object):
         self.beta2 = beta2
         self.eps = eps
         self._reset()
-        
+
     def _reset(self):
         self.t = 0
         self.obj_list = []
         self.m = np.zeros(self.D)
         self.v = np.zeros(self.D)
-        
+
     def update(self, params, args = ()):
         """
         Take one step of ADAM SGD.
@@ -59,7 +59,7 @@ class Adam(object):
         dparams = -self.lr * self.m / (np.sqrt(self.v) + self.eps)
         params += dparams
         return params, obj
-    
+
     def optimize(self, p0, itn = 1000, tol = 1E-2,
                  iprint = 50, args = ()):
         """
@@ -85,4 +85,4 @@ class Adam(object):
                 break
             self.obj_list += [obj]
             obj0 = obj
-        return p0  
+        return p0
